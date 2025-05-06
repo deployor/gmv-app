@@ -1,21 +1,23 @@
 {
   "expo": {
-    "name": "gmv-app",
+    "name": "GMV School",
     "slug": "gmv-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "gmvapp",
+    "scheme": "gmvschool",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gmvschool.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "package": "com.gmvschool.app",
       "edgeToEdgeEnabled": true
     },
     "web": {
