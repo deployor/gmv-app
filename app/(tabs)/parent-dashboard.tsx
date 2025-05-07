@@ -1,29 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { supabase } from '../../lib/supabase';
 
 export default function ParentDashboardScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [children, setChildren] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
-    if (user && userProfile?.role === 'parent') {
+    if (user && user.role === 'parent') {
       fetchChildren();
       fetchNotifications();
     }
-  }, [user, userProfile]);
+  }, [user]);
 
   const fetchChildren = async () => {
+    if (!user || !user.id) return;
+    
     try {
       setLoading(true);
       
@@ -56,6 +58,8 @@ export default function ParentDashboardScreen() {
   };
 
   const fetchNotifications = async () => {
+    if (!user || !user.id) return;
+    
     try {
       const { data, error } = await supabase
         .from('parent_notifications')
@@ -102,14 +106,12 @@ export default function ParentDashboardScreen() {
     return date.toLocaleDateString();
   };
 
-  if (userProfile?.role !== 'parent') {
+  // Check for non-parent users
+  if (!user || user.role !== 'parent') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: colors.text }]}>
-            This screen is only accessible to parents
-          </Text>
+        <View style={styles.centeredContent}>
+          <Text style={{ color: colors.text }}>This dashboard is only accessible to parent users.</Text>
         </View>
       </SafeAreaView>
     );
@@ -149,14 +151,14 @@ export default function ParentDashboardScreen() {
                       ) : (
                         <View style={[styles.avatarPlaceholder, { backgroundColor: colors.tint }]}>
                           <Text style={styles.avatarText}>
-                            {child.full_name?.charAt(0) || child.username?.charAt(0) || 'S'}
+                            {child.fullName?.charAt(0) || child.username?.charAt(0) || 'S'}
                           </Text>
                         </View>
                       )}
                     </View>
                     <View style={styles.childDetails}>
                       <Text style={[styles.childName, { color: colors.text }]}>
-                        {child.full_name || child.username || 'Student'}
+                        {child.fullName || child.username || 'Student'}
                       </Text>
                       <Text style={[styles.relationshipText, { color: colors.icon }]}>
                         {child.relationship}
@@ -364,5 +366,11 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     textAlign: 'center',
+  },
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
 }); 

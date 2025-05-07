@@ -1,7 +1,6 @@
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import React, { useEffect } from 'react';
-import { router } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -12,26 +11,20 @@ import { useAuth } from '../../context/AuthContext';
 export default function AdminLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { user, userProfile, session } = useAuth();
+  const { user } = useAuth();
 
   useEffect(() => {
-    if (!session) {
-      router.replace('/(auth)/login');
-      return;
-    }
-
-    // Redirect non-admin users
-    if (userProfile && userProfile.role !== 'admin') {
+    if (user && user.role !== 'admin') {
       router.replace('/(tabs)');
     }
-  }, [session, userProfile]);
+  }, [user]);
 
   // Show loading or access denied while checking authentication
-  if (!userProfile || userProfile.role !== 'admin') {
+  if (!user || user.role !== 'admin') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.centerContent}>
-          {!userProfile ? (
+          {!user ? (
             <Text style={[styles.message, { color: colors.text }]}>Loading...</Text>
           ) : (
             <Text style={[styles.message, { color: colors.text }]}>

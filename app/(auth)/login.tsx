@@ -1,30 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useAuth } from '../../context/AuthContext';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
+import { useOAuth, useSignIn } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState } from 'react';
+import {
+    ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+    StyleSheet, Text, TextInput, TouchableOpacity, View
+} from 'react-native';
+import { Colors } from '../../constants/Colors';
+import { useToast } from '../../context/ToastContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [localLoading, setLocalLoading] = useState(false);
   const [role, setRole] = useState<'student' | 'teacher' | 'parent' | 'admin'>('student');
-  const { signIn, signInWithMicrosoft, loading: authLoading } = useAuth();
+  
+  const { signIn, isLoaded, setActive } = useSignIn();
+  const { startOAuthFlow: startMicrosoftOAuthFlow } = useOAuth({ strategy: "oauth_microsoft" });
+  const [loading, setLoading] = useState(false);
+  const [microsoftLoading, setMicrosoftLoading] = useState(false);
+  
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const params = useLocalSearchParams();
-  
-  const loading = localLoading || authLoading;
-
-  // Handle error message from query params
-  useEffect(() => {
-    if (params.error) {
-      Alert.alert('Error', params.error as string);
-    }
-  }, [params.error]);
+  const toast = useToast();
 
   const handleSignIn = async () => {
     if (!email || !password) {
@@ -32,28 +31,113 @@ export default function LoginScreen() {
       return;
     }
 
+    if (!isLoaded || !signIn) {
+      Alert.alert('Error', 'Auth system is not loaded yet');
+      return;
+    }
+
     try {
-      setLocalLoading(true);
-      await signIn(email, password);
+      setLoading(true);
       
-      // Admin users will be automatically redirected to the admin section
-      // by the AuthContext once their role is determined
+      // Log the sign-in attempt
+      console.log(`Attempting to sign in with email: ${email} and role: ${role}`);
+      
+      // Start the sign in process with Clerk
+      const signInResponse = await signIn.create({
+        identifier: email,
+        password,
+      });
+      
+      console.log('Sign in response status:', signInResponse.status);
+      
+      // This indicates the user was found and authenticated
+      if (signInResponse.status === 'complete') {
+        if (signInResponse.createdSessionId) {
+          console.log('Created session with ID:', signInResponse.createdSessionId);
+          
+          // Set this session as active which changes the authentication state
+          await setActive({ session: signInResponse.createdSessionId });
+          toast.showToast('Signed in successfully!', 'success');
+          // Navigation will be handled by the layout component when auth state changes
+        } else {
+          console.error('No session ID in complete response');
+          toast.showToast('Authentication error - missing session', 'error');
+        }
+      } else if (signInResponse.status === 'needs_first_factor' || 
+                 signInResponse.status === 'needs_second_factor') {
+        // Handle 2FA or other factor requirements
+        toast.showToast('Additional verification needed', 'info');
+        // You would handle the factor verification flow here
+      } else if (signInResponse.status === 'needs_identifier') {
+        toast.showToast('Please enter your email address', 'info');
+      } else if (signInResponse.status === 'needs_new_password') {
+        toast.showToast('Please reset your password', 'info');
+        // Handle password reset flow
+      } else {
+        // The sign in process requires more steps or failed
+        console.log('Sign in returned unexpected status:', signInResponse.status);
+        Alert.alert('Authentication Error', `Unexpected status: ${signInResponse.status}`);
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'An error occurred during sign in');
+      console.error('Sign in error:', error);
+      
+      // Handle specific error types
+      if (error.errors && error.errors.length > 0) {
+        const errorMessage = error.errors[0].message;
+        const errorCode = error.errors[0].code;
+        
+        console.log(`Auth error code: ${errorCode}, message: ${errorMessage}`);
+        
+        if (errorCode === 'form_identifier_not_found') {
+          Alert.alert('Account Not Found', 'No account exists with this email address.');
+        } else if (errorCode === 'form_password_incorrect') {
+          Alert.alert('Incorrect Password', 'The password you entered is incorrect.');
+        } else {
+          Alert.alert('Authentication Error', errorMessage);
+        }
+      } else {
+        Alert.alert('Authentication Error', 'Failed to sign in. Please try again.');
+      }
     } finally {
-      setLocalLoading(false);
+      setLoading(false);
     }
   };
-  
+
   const handleMicrosoftSignIn = async () => {
+    if (!isLoaded) {
+      Alert.alert('Error', 'Auth system is not loaded yet');
+      return;
+    }
+
     try {
-      setLocalLoading(true);
-      // Pass the selected role as metadata for new users
-      await signInWithMicrosoft(role);
+      setMicrosoftLoading(true);
+      
+      // Start the OAuth flow
+      const result = await startMicrosoftOAuthFlow();
+      console.log('Microsoft OAuth result:', JSON.stringify(result, null, 2));
+      
+      // Check if we have a valid result
+      if (result && result.createdSessionId) {
+        console.log('Successfully created session with ID:', result.createdSessionId);
+        
+        // Set the session as active
+        if (result.setActive) {
+          await result.setActive({ session: result.createdSessionId });
+          toast.showToast('Signed in with Microsoft successfully!', 'success');
+        } else {
+          // Fallback to our regular setActive if the OAuth one isn't available
+          await setActive({ session: result.createdSessionId });
+          toast.showToast('Signed in with Microsoft successfully!', 'success');
+        }
+      } else {
+        console.log('No session created. Full result:', result);
+        toast.showToast('Microsoft sign in failed. Please try again.', 'error');
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'An error occurred during Microsoft sign in');
+      console.error('Microsoft auth error:', error);
+      toast.showToast('Failed to sign in with Microsoft', 'error');
     } finally {
-      setLocalLoading(false);
+      setMicrosoftLoading(false);
     }
   };
 
@@ -80,7 +164,7 @@ export default function LoginScreen() {
       </View>
       
       <View style={styles.formContainer}>
-        {loading && (
+        {(loading || microsoftLoading || !isLoaded) && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color={colors.tint} />
           </View>
@@ -180,7 +264,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          editable={!loading}
+          editable={!loading && isLoaded}
         />
         
         <TextInput
@@ -190,40 +274,40 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          editable={!loading}
+          editable={!loading && isLoaded}
         />
+        
+        <TouchableOpacity 
+          style={styles.forgotPasswordLink} 
+          onPress={() => router.push('/(auth)/forgot-password')}
+          disabled={loading || !isLoaded}
+        >
+          <Text style={[styles.forgotPasswordText, { color: colors.tint }]}>
+            Forgot Password?
+          </Text>
+        </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.button, { backgroundColor: colors.tint }]} 
           onPress={handleSignIn}
-          disabled={loading}
+          disabled={loading || microsoftLoading || !isLoaded}
         >
           <Text style={styles.buttonText}>Sign In</Text>
         </TouchableOpacity>
         
-        <View style={styles.dividerContainer}>
+        <View style={styles.orContainer}>
           <View style={[styles.divider, { backgroundColor: colors.icon }]} />
-          <Text style={[styles.dividerText, { color: colors.icon }]}>OR</Text>
+          <Text style={[styles.orText, { color: colors.icon }]}>OR</Text>
           <View style={[styles.divider, { backgroundColor: colors.icon }]} />
         </View>
         
         <TouchableOpacity 
-          style={[styles.microsoftButton, { borderColor: MICROSOFT_BLUE }]} 
+          style={[styles.socialButton, { backgroundColor: MICROSOFT_BLUE }]} 
           onPress={handleMicrosoftSignIn}
-          disabled={loading}
+          disabled={loading || microsoftLoading || !isLoaded}
         >
-          <View style={styles.microsoftButtonContent}>
-            {/* Microsoft Logo representation */}
-            <View style={styles.microsoftLogoContainer}>
-              <View style={[styles.microsoftLogoPart, { backgroundColor: '#f25022' }]} />
-              <View style={[styles.microsoftLogoPart, { backgroundColor: '#7fba00' }]} />
-              <View style={[styles.microsoftLogoPart, { backgroundColor: '#00a4ef' }]} />
-              <View style={[styles.microsoftLogoPart, { backgroundColor: '#ffb900' }]} />
-            </View>
-            <Text style={[styles.microsoftButtonText, { color: MICROSOFT_BLUE }]}>
-              Sign in with Microsoft
-            </Text>
-          </View>
+          <Ionicons name="logo-windows" size={20} color="white" style={styles.socialIcon} />
+          <Text style={styles.socialButtonText}>Sign in with Microsoft</Text>
         </TouchableOpacity>
       </View>
       
@@ -231,7 +315,7 @@ export default function LoginScreen() {
         <Text style={[styles.footerText, { color: colors.icon }]}>
           Don&apos;t have an account?{' '}
         </Text>
-        <TouchableOpacity onPress={navigateToRegister} disabled={loading}>
+        <TouchableOpacity onPress={navigateToRegister} disabled={loading || !isLoaded}>
           <Text style={[styles.link, { color: colors.tint }]}>
             Sign Up
           </Text>
@@ -310,6 +394,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 16,
   },
+  forgotPasswordLink: {
+    alignSelf: 'flex-end',
+    marginBottom: 16,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
   button: {
     height: 50,
     borderRadius: 8,
@@ -322,47 +414,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    paddingHorizontal: 10,
-    fontSize: 14,
-  },
-  microsoftButton: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  microsoftButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  microsoftLogoContainer: {
-    width: 20,
-    height: 20,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginRight: 10,
-  },
-  microsoftLogoPart: {
-    width: 9,
-    height: 9,
-    margin: 0.5,
-  },
-  microsoftButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -373,5 +424,33 @@ const styles = StyleSheet.create({
   link: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  orContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+  },
+  orText: {
+    marginHorizontal: 10,
+    fontSize: 14,
+  },
+  socialButton: {
+    height: 50,
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  socialIcon: {
+    marginRight: 10,
+  },
+  socialButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
   },
 }); 

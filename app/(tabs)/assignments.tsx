@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Platform, KeyboardAvoidingView, Alert } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../context/AuthContext';
-import { Database } from '../../types/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { supabase } from '../../lib/supabase';
+import { Database } from '../../types/supabase';
 
 type Assignment = Database['public']['Tables']['assignments']['Row'] & {
   course?: string;
@@ -38,7 +38,7 @@ export default function AssignmentsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
   const [classMap, setClassMap] = useState<Record<string, { name: string, color: string }>>({});
   const [classes, setClasses] = useState<{ id: string, name: string }[]>([]);
   
@@ -66,7 +66,7 @@ export default function AssignmentsScreen() {
       // First, fetch all classes the user has access to
       let classesQuery = supabase.from('classes').select('*');
       
-      if (userProfile?.role === 'student') {
+      if (user?.role === 'student') {
         // Students only see classes they're enrolled in
         const { data: enrollments } = await supabase
           .from('enrollments')
@@ -81,7 +81,7 @@ export default function AssignmentsScreen() {
           setLoading(false);
           return;
         }
-      } else if (userProfile?.role === 'teacher') {
+      } else if (user?.role === 'teacher') {
         // Teachers only see their own classes
         classesQuery = classesQuery.eq('teacher_id', user.id);
       }
@@ -107,7 +107,7 @@ export default function AssignmentsScreen() {
       setClasses(classesData?.map(c => ({ id: c.id, name: c.name })) || []);
       
       // Set default class_id if this is a teacher and they have classes
-      if (userProfile?.role === 'teacher' && classesData && classesData.length > 0 && !newAssignment.class_id) {
+      if (user?.role === 'teacher' && classesData && classesData.length > 0 && !newAssignment.class_id) {
         setNewAssignment(prev => ({ ...prev, class_id: classesData[0].id }));
       }
       
@@ -138,7 +138,7 @@ export default function AssignmentsScreen() {
       
       // For student role, check which assignments are completed
       let submissionsData: Submission[] = [];
-      if (userProfile?.role === 'student') {
+      if (user?.role === 'student') {
         const { data: submissions, error: submissionsError } = await supabase
           .from('submissions')
           .select('*')
@@ -475,7 +475,7 @@ export default function AssignmentsScreen() {
       </Modal>
       
       {/* Floating Action Button for Teachers */}
-      {userProfile?.role === 'teacher' && (
+      {user?.role === 'teacher' && (
         <TouchableOpacity
           style={[styles.fab, { backgroundColor: colors.tint }]}
           onPress={() => setIsModalVisible(true)}

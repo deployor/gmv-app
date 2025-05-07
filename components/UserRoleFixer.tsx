@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Button, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { prisma } from '../lib/prisma';
 
 export default function UserRoleFixer() {
-  const { user, userProfile, fixUserRole } = useAuth();
+  const { user, refreshUserProfile } = useAuth();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>('student');
 
   // Check if current user is admin
-  const isAdmin = userProfile?.role === 'admin';
+  const isAdmin = user?.role === 'admin';
 
   // Load profiles
   useEffect(() => {
@@ -20,13 +20,10 @@ export default function UserRoleFixer() {
     const loadProfiles = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(20);
-
-        if (error) throw error;
+        const data = await prisma.user.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 20
+        });
         setProfiles(data || []);
       } catch (error) {
         console.error('Error loading profiles:', error);
@@ -47,17 +44,25 @@ export default function UserRoleFixer() {
     }
 
     try {
-      await fixUserRole(userId, selectedRole);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: selectedRole }
+      });
+      
       Alert.alert('Success', `Role updated to ${selectedRole}`);
       
       // Refresh the profiles list
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
+      const data = await prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 20
+      });
       
       setProfiles(data || []);
+      
+      // If updating the current user, refresh the profile
+      if (user?.id === userId) {
+        await refreshUserProfile();
+      }
     } catch (error) {
       console.error('Error fixing role:', error);
       Alert.alert('Error', 'Failed to update role');

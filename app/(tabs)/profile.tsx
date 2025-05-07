@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, Alert, TextInput, ActivityIndicator } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useAuth } from '../../context/AuthContext';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
 import { supabase } from '../../lib/supabase';
 
 export default function ProfileScreen() {
@@ -28,22 +28,29 @@ export default function ProfileScreen() {
   }, [user]);
 
   async function getProfile() {
+    if (!user?.id) return;
+    
     try {
       setLoading(true);
-      setTimeout(() => {
-        setProfile({
-          id: user?.id,
-          username: 'student001',
-          full_name: 'John Doe',
-          email: user?.email,
-          role: 'student',
-          grade: '10th Grade',
-          student_id: 'S12345',
-        });
-        setLoading(false);
-      }, 500);
+      
+      // Fetch the actual user profile from the database
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+        
+      if (error) {
+        console.error('Error fetching profile:', error);
+        throw error;
+      }
+      
+      if (data) {
+        setProfile(data);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
+    } finally {
       setLoading(false);
     }
   }
@@ -119,17 +126,17 @@ export default function ProfileScreen() {
         <View style={styles.profileSection}>
           <View style={[styles.avatar, { backgroundColor: colors.tint }]}>
             <Text style={styles.avatarText}>
-              {profile?.full_name?.split(' ').map((n: string) => n[0]).join('') || 'JD'}
+              {profile?.fullName?.split(' ').map((n: string) => n[0]).join('') || user?.fullName?.charAt(0) || 'U'}
             </Text>
           </View>
-          <Text style={[styles.name, { color: colors.text }]}>{profile?.full_name || 'Student'}</Text>
-          <Text style={[styles.email, { color: colors.icon }]}>{profile?.email || user?.email || 'student@example.com'}</Text>
+          <Text style={[styles.name, { color: colors.text }]}>{profile?.fullName || user?.fullName || 'User'}</Text>
+          <Text style={[styles.email, { color: colors.icon }]}>{profile?.email || user?.email || 'user@example.com'}</Text>
           
           <View style={styles.infoContainer}>
             <View style={[styles.infoItem, { borderColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
               <Text style={[styles.infoLabel, { color: colors.icon }]}>Role</Text>
               <Text style={[styles.infoValue, { color: colors.text }]}>
-                {profile?.role === 'student' ? 'Student' : 'Teacher'}
+                {(profile?.role || user?.role || 'Student')}
               </Text>
             </View>
             

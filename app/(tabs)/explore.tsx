@@ -1,13 +1,11 @@
-import { StyleSheet } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { Colors } from '../../constants/Colors';
-import { ScrollView, View, Text, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
 
 // Define a type for the Ionicons name prop
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -54,7 +52,7 @@ export default function ExploreScreen() {
     },
   ]);
   const [loading, setLoading] = useState(false);
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

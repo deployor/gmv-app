@@ -1,30 +1,38 @@
-import { Stack } from 'expo-router';
+import { Href, router, Slot } from 'expo-router';
+import React, { useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useEffect } from 'react';
-import { router } from 'expo-router';
-
-// Check if we're in a browser environment
-const isBrowser = typeof window !== 'undefined';
 
 export default function AuthLayout() {
-  const { session } = useAuth();
+  const { user, loading, isSignedIn } = useAuth();
 
-  // If user is already authenticated, redirect to the tabs
+  // Redirect away from auth pages if user is already authenticated and profile loaded
   useEffect(() => {
-    // Only redirect in browser environment
-    if (!isBrowser) return;
-    
-    if (session) {
-      setTimeout(() => {
-        router.replace('../(tabs)');
-      }, 0);
+    // Wait for loading to be false
+    if (!loading) {
+      if (isSignedIn && user) {
+        // Determine redirect based on role
+        let redirectPath: Href = '/(tabs)' as Href; // Default for students
+        
+        if (user.role === 'admin') redirectPath = '/(admin)/dashboard' as Href;
+        else if (user.role === 'parent') redirectPath = '/(parent)/dashboard' as Href;
+        else if (user.role === 'teacher') redirectPath = '/(teacher)/dashboard' as Href;
+        
+        router.replace(redirectPath);
+      } else if (isSignedIn && !user) {
+        // Clerk is signed in, but our user profile is not yet loaded/available.
+        // The root layout is likely handling the main loading spinner.
+        // This layout should probably wait or show minimal UI if needed.
+        // For now, returning null is consistent if RootNavigator is showing a spinner.
+        console.log('AuthLayout: Signed in, waiting for user profile to determine redirect...');
+      }
+      // If not signedIn, Slot will render the auth screens (login, signup)
     }
-  }, [session]);
+  }, [isSignedIn, user, loading]);
 
-  return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="login" />
-      <Stack.Screen name="register" />
-    </Stack>
-  );
+  // If loading (either Clerk or our profile), render nothing - the root layout will show a loader
+  if (loading) return null;
+
+  // If not loading, and not signedIn (or signedIn but no profile yet, though root handles this loading state)
+  // allow rendering auth screens (login, signup, etc.)
+  return <Slot />;
 } 

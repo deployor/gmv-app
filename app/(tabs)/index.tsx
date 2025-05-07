@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../lib/supabase';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { supabase } from '../../lib/supabase';
 import { Database } from '../../types/supabase';
 
 type Assignment = Database['public']['Tables']['assignments']['Row'];
@@ -19,7 +19,7 @@ type Announcement = {
 };
 
 export default function DashboardScreen() {
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
@@ -43,7 +43,7 @@ export default function DashboardScreen() {
         .from('classes')
         .select('*');
         
-      if (userProfile?.role === 'student') {
+      if (user?.role === 'student') {
         // Students only see enrolled classes
         const { data: enrollments } = await supabase
           .from('enrollments')
@@ -54,7 +54,7 @@ export default function DashboardScreen() {
           const classIds = enrollments.map(e => e.class_id);
           classesQuery = classesQuery.in('id', classIds);
         }
-      } else if (userProfile?.role === 'teacher') {
+      } else if (user?.role === 'teacher') {
         // Teachers only see classes they teach
         classesQuery = classesQuery.eq('teacher_id', user.id);
       }
@@ -79,7 +79,7 @@ export default function DashboardScreen() {
             
           if (totalAssignmentsError) throw totalAssignmentsError;
           
-          if (userProfile?.role === 'student') {
+          if (user?.role === 'student') {
             // For students, calculate based on their submissions
             const { data: completedAssignments, error: completedError } = await supabase
               .from('submissions')
@@ -190,7 +190,7 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={[styles.greeting, { color: colors.text }]}>
-            Hello, {userProfile?.full_name || 'Student'}
+            Hello, {user?.fullName || 'Student'}
           </Text>
           <Text style={[styles.subtitle, { color: colors.icon }]}>
             Welcome back to your dashboard

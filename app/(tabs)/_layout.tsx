@@ -1,7 +1,6 @@
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
-import { router } from 'expo-router';
 
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -14,20 +13,20 @@ const isBrowser = typeof window !== 'undefined';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const { session, userProfile } = useAuth();
+  const { user, isSignedIn } = useAuth();
 
   useEffect(() => {
     if (!isBrowser) return;
     
-    if (!session) {
+    if (!isSignedIn) {
       setTimeout(() => {
         router.replace('../(auth)/login');
       }, 0);
     }
-  }, [session]);
+  }, [isSignedIn]);
 
   // Determine if the parent dashboard should be shown
-  const isParent = userProfile?.role === 'parent';
+  const isParent = user?.role === 'parent';
 
   return (
     <Tabs
@@ -75,8 +74,8 @@ export default function TabLayout() {
         }}
       />
       {isParent && (
-        <Tabs.Screen
-          name="explore"
+      <Tabs.Screen
+        name="explore"
           options={{
             title: 'Resources',
             tabBarIcon: ({ color }: { color: string }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,

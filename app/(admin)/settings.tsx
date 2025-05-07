@@ -1,27 +1,30 @@
-import React from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Switch,
-  Alert
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import ChangePassword from '../../components/ui/ChangePassword';
+import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
 
 export default function AdminSettingsScreen() {
+  const { user, signOut } = useAuth();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { signOut } = useAuth();
   
-  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = React.useState(colorScheme === 'dark');
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [darkModeEnabled, setDarkModeEnabled] = useState(colorScheme === 'dark');
   
   const handleSignOut = async () => {
     try {
@@ -32,137 +35,133 @@ export default function AdminSettingsScreen() {
     }
   };
   
+  // Modal section
+  const renderPasswordModal = () => {
+    if (!showPasswordForm) return null;
+    
+    return (
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <ChangePassword onClose={() => setShowPasswordForm(false)} />
+        </View>
+      </View>
+    );
+  };
+  
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
-      </View>
+      <Stack.Screen options={{ 
+        title: 'Settings',
+        headerShown: true,
+        headerBackTitle: 'Dashboard',
+      }} />
       
       <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Preferences</Text>
-          
-          <View style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
-            <View style={styles.settingInfo}>
-              <Ionicons name="notifications-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Notifications</Text>
-            </View>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
-              trackColor={{ false: '#767577', true: colors.tint + '80' }}
-              thumbColor={notificationsEnabled ? colors.tint : '#f4f3f4'}
-            />
+        <View style={styles.profileSection}>
+          <View style={[styles.avatarContainer, { backgroundColor: colors.tint + '20' }]}>
+            <Text style={[styles.avatarText, { color: colors.tint }]}>
+              {user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'A'}
+            </Text>
           </View>
           
-          <View style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
-            <View style={styles.settingInfo}>
-              <Ionicons name="moon-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Dark Mode</Text>
-            </View>
-            <Switch
-              value={darkModeEnabled}
-              onValueChange={setDarkModeEnabled}
-              trackColor={{ false: '#767577', true: colors.tint + '80' }}
-              thumbColor={darkModeEnabled ? colors.tint : '#f4f3f4'}
-            />
+          <View style={styles.profileInfo}>
+            <Text style={[styles.profileName, { color: colors.text }]}>
+              {user?.fullName || 'Admin User'}
+            </Text>
+            <Text style={[styles.profileEmail, { color: colors.icon }]}>
+              {user?.email || 'admin@example.com'}
+            </Text>
+            <Text style={[styles.profileRole, { color: colors.tint }]}>
+              Administrator
+            </Text>
           </View>
-        </View>
-        
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Application</Text>
-          
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('Backup', 'Backup functionality would be implemented here')}
-          >
-            <View style={styles.settingInfo}>
-              <Ionicons name="save-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Backup Database</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('Restore', 'Restore functionality would be implemented here')}
-          >
-            <View style={styles.settingInfo}>
-              <Ionicons name="refresh-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Restore Data</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('System Logs', 'System logs would be shown here')}
-          >
-            <View style={styles.settingInfo}>
-              <Ionicons name="list-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>System Logs</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Security</Text>
-          
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('Change Password', 'Password change functionality would be implemented here')}
-          >
-            <View style={styles.settingInfo}>
-              <Ionicons name="key-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Change Password</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('Two-Factor Authentication', '2FA would be configured here')}
-          >
-            <View style={styles.settingInfo}>
-              <Ionicons name="shield-checkmark-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Two-Factor Authentication</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
-          </TouchableOpacity>
         </View>
         
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Account</Text>
           
           <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={() => Alert.alert('Profile', 'Profile editing would be implemented here')}
+            style={[styles.settingItem, { borderBottomColor: colors.icon }]}
+            onPress={() => setShowPasswordForm(true)}
           >
             <View style={styles.settingInfo}>
-              <Ionicons name="person-outline" size={22} color={colors.icon} style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: colors.text }]}>Edit Profile</Text>
+              <Ionicons name="key-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Change Password</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.icon} />
           </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={[styles.settingItem, { borderBottomColor: colors === Colors.dark ? '#333' : '#EEE' }]}
-            onPress={handleSignOut}
-          >
+          <TouchableOpacity style={[styles.settingItem, { borderBottomColor: colors.icon }]}>
             <View style={styles.settingInfo}>
-              <Ionicons name="log-out-outline" size={22} color="#F44336" style={styles.settingIcon} />
-              <Text style={[styles.settingText, { color: '#F44336' }]}>Sign Out</Text>
+              <Ionicons name="person-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Edit Profile</Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
           </TouchableOpacity>
         </View>
         
-        <View style={styles.versionContainer}>
-          <Text style={[styles.versionText, { color: colors.icon }]}>GMV School App v1.0.0</Text>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Preferences</Text>
+          
+          <View style={[styles.settingItem, { borderBottomColor: colors.icon }]}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="notifications-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Notifications</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
+              trackColor={{ false: colors.icon, true: colors.tint + '70' }}
+              thumbColor={notificationsEnabled ? colors.tint : colors.icon}
+            />
+          </View>
+          
+          <View style={[styles.settingItem, { borderBottomColor: colors.icon }]}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="moon-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Dark Mode</Text>
+            </View>
+            <Switch
+              value={darkModeEnabled}
+              onValueChange={setDarkModeEnabled}
+              trackColor={{ false: colors.icon, true: colors.tint + '70' }}
+              thumbColor={darkModeEnabled ? colors.tint : colors.icon}
+            />
+          </View>
         </View>
+        
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Support</Text>
+          
+          <TouchableOpacity style={[styles.settingItem, { borderBottomColor: colors.icon }]}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="help-circle-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Help & Support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={[styles.settingItem, { borderBottomColor: colors.icon }]}>
+            <View style={styles.settingInfo}>
+              <Ionicons name="document-text-outline" size={22} color={colors.text} />
+              <Text style={[styles.settingText, { color: colors.text }]}>Terms & Policies</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.icon} />
+          </TouchableOpacity>
+        </View>
+        
+        <TouchableOpacity 
+          style={[styles.signOutButton, { backgroundColor: '#FF3B30' + '10' }]}
+          onPress={handleSignOut}
+        >
+          <Ionicons name="log-out-outline" size={22} color="#FF3B30" />
+          <Text style={[styles.signOutText, { color: '#FF3B30' }]}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
+      
+      {renderPasswordModal()}
     </SafeAreaView>
   );
 }
@@ -171,51 +170,98 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+  content: {
+    flex: 1,
+    padding: 20,
   },
-  headerTitle: {
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  avatarContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  avatarText: {
     fontSize: 28,
     fontWeight: 'bold',
   },
-  content: {
+  profileInfo: {
     flex: 1,
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  profileEmail: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  profileRole: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   settingItem: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 14,
-    paddingHorizontal: 20,
     borderBottomWidth: 1,
   },
   settingInfo: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  settingIcon: {
-    marginRight: 12,
-  },
   settingText: {
+    marginLeft: 14,
     fontSize: 16,
   },
-  versionContainer: {
+  signOutButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    marginBottom: 20,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginBottom: 30,
   },
-  versionText: {
-    fontSize: 14,
-  }
+  signOutText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
 }); 

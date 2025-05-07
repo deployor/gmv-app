@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  Alert, 
-  KeyboardAvoidingView, 
-  Platform, 
-  ScrollView, 
-  ActivityIndicator 
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { useAuth } from '../../context/AuthContext';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
+import { useSignUp } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
+import { Colors } from '../../constants/Colors';
+import { useToast } from '../../context/ToastContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
 
 // Secret access codes for restricted roles
 // In a real app, these would be validated server-side and not stored in the client
@@ -34,12 +35,14 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [accessCode, setAccessCode] = useState('');
-  const [loading, setLoading] = useState(false);
   const [role, setRole] = useState(initialRole);
   
-  const { signUp } = useAuth();
+  const { signUp, isLoaded, setActive } = useSignUp();
+  const [loading, setLoading] = useState(false);
+  
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const toast = useToast();
 
   const handleSignUp = async () => {
     if (!email || !password || !confirmPassword || !fullName) {
@@ -54,26 +57,94 @@ export default function RegisterScreen() {
 
     // Validate access code for restricted roles
     if (role === 'teacher' && accessCode !== ACCESS_CODES.teacher) {
-      Alert.alert('Invalid Access Code', 'The teacher access code you entered is not valid');
+      // Redirect to auth error screen instead of showing an alert
+      router.push({
+        pathname: '/(auth)/auth-error',
+        params: { 
+          type: 'invalid_access_code',
+          message: 'The teacher access code you entered is not valid.'
+        }
+      });
       return;
     }
 
     if (role === 'admin' && accessCode !== ACCESS_CODES.admin) {
-      Alert.alert('Invalid Access Code', 'The admin access code you entered is not valid');
+      // Redirect to auth error screen instead of showing an alert
+      router.push({
+        pathname: '/(auth)/auth-error',
+        params: { 
+          type: 'invalid_access_code',
+          message: 'The admin access code you entered is not valid.'
+        }
+      });
+      return;
+    }
+
+    if (!isLoaded || !signUp) {
+      Alert.alert('Error', 'Auth system is not loaded yet');
       return;
     }
 
     try {
       setLoading(true);
-      // Pass the full name as part of user metadata
-      await signUp(email, password, role, fullName);
-      Alert.alert(
-        'Registration successful',
-        'Your account has been created. You can now sign in.',
-        [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
-      );
+      
+      // Split the full name into first and last names
+      const nameParts = fullName.trim().split(/\s+/);
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      // Create the user with Clerk
+      const signUpResponse = await signUp.create({
+        emailAddress: email,
+        password,
+        firstName,
+        lastName,
+        unsafeMetadata: {
+          role,
+          fullName
+        }
+      });
+      
+      // Prepare verification
+      await signUpResponse.prepareEmailAddressVerification({ strategy: "email_code" });
+      
+      // Navigate to the confirmation email screen
+      router.replace({
+        pathname: '/(auth)/confirm-email',
+        params: { email }
+      });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'An error occurred during registration');
+      // Handle registration errors with the auth-error screen
+      console.error('Sign up error:', error);
+      
+      if (error.errors && error.errors[0]) {
+        const errorMessage = error.errors[0].message;
+        if (errorMessage.includes('already exists')) {
+          router.push({
+            pathname: '/(auth)/auth-error',
+            params: { 
+              type: 'email_in_use',
+              message: 'This email address is already registered.'
+            }
+          });
+        } else {
+          router.push({
+            pathname: '/(auth)/auth-error',
+            params: { 
+              type: 'general',
+              message: errorMessage || 'An error occurred during registration.'
+            }
+          });
+        }
+      } else {
+        router.push({
+          pathname: '/(auth)/auth-error',
+          params: { 
+            type: 'general',
+            message: 'An error occurred during registration.'
+          }
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -95,7 +166,7 @@ export default function RegisterScreen() {
         </View>
         
         <View style={styles.formContainer}>
-          {loading && (
+          {(loading || !isLoaded) && (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color={colors.tint} />
             </View>
@@ -109,7 +180,7 @@ export default function RegisterScreen() {
                 role === 'student' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
               ]}
               onPress={() => setRole('student')}
-              disabled={loading}
+              disabled={loading || !isLoaded}
             >
               <Ionicons 
                 name="school-outline" 
@@ -131,7 +202,7 @@ export default function RegisterScreen() {
                 role === 'parent' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
               ]}
               onPress={() => setRole('parent')}
-              disabled={loading}
+              disabled={loading || !isLoaded}
             >
               <Ionicons 
                 name="people-outline" 
@@ -153,7 +224,7 @@ export default function RegisterScreen() {
                 role === 'teacher' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
               ]}
               onPress={() => setRole('teacher')}
-              disabled={loading}
+              disabled={loading || !isLoaded}
             >
               <Ionicons 
                 name="person-outline" 
@@ -175,7 +246,7 @@ export default function RegisterScreen() {
                 role === 'admin' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
               ]}
               onPress={() => setRole('admin')}
-              disabled={loading}
+              disabled={loading || !isLoaded}
             >
               <Ionicons 
                 name="shield-outline" 

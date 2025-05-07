@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Colors } from '../../constants/Colors';
-import { useColorScheme } from '../../hooks/useColorScheme';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { supabase } from '../../lib/supabase';
+import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { useColorScheme } from '../../hooks/useColorScheme';
+import { supabase } from '../../lib/supabase';
 import { Database } from '../../types/supabase';
 
 type Class = Database['public']['Tables']['classes']['Row'] & {
@@ -32,7 +32,7 @@ export default function ClassesScreen() {
   const [activeTab, setActiveTab] = useState('all');
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user, userProfile } = useAuth();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (user) {
@@ -45,9 +45,9 @@ export default function ClassesScreen() {
       setLoading(true);
       
       // Build the query based on the user's role
-      let classesQuery = supabase.from('classes').select('*, profiles:teacher_id(full_name)');
+      let classesQuery = supabase.from('classes').select('*, profiles:teacher_id(fullName)');
       
-      if (userProfile?.role === 'student') {
+      if (user?.role === 'student') {
         // Students only see enrolled classes
         if (activeTab === 'all') {
           const { data: enrollments } = await supabase
@@ -80,7 +80,7 @@ export default function ClassesScreen() {
             return;
           }
         }
-      } else if (userProfile?.role === 'teacher') {
+      } else if (user?.role === 'teacher') {
         // Teachers only see classes they teach
         classesQuery = classesQuery.eq('teacher_id', user.id);
       }
@@ -97,7 +97,7 @@ export default function ClassesScreen() {
         return {
           ...cls,
           color: CLASS_COLORS[index % CLASS_COLORS.length],
-          teacher_name: cls.profiles?.full_name || 'Unknown Teacher',
+          teacher_name: cls.profiles?.fullName || 'Unknown Teacher',
           // In a real app, this would come from a schedule table
           schedule: getRandomSchedule(), 
         };
