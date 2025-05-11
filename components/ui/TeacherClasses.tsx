@@ -1,37 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 interface ClassItem {
   id: string;
   name: string;
-  description: string;
-  image_url: string | null;
-  created_at: string;
+  description: string | null;
+  imageUrl: string | null;
+  createdAt: Date;
   studentCount?: number;
 }
 
 interface StudentItem {
   id: string;
-  full_name: string;
-  email: string;
-  avatar_url: string | null;
+  fullName: string | null;
+  email: string | null;
+  avatarUrl: string | null;
 }
 
 export default function TeacherClasses() {
@@ -64,28 +64,27 @@ export default function TeacherClasses() {
     try {
       setFetchingClasses(true);
       
-      // Fetch classes created by the teacher
-      const { data: classesData, error: classesError } = await supabase
-        .from('classes')
-        .select('*')
-        .eq('teacher_id', user.id)
-        .order('created_at', { ascending: false });
+      // Fetch classes created by the teacher with student counts
+      const classesData = await prisma.class.findMany({
+        where: {
+          teacherId: user.id
+        },
+        include: {
+          enrollments: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
 
-      if (classesError) throw classesError;
-
-      // For each class, count the number of enrolled students
-      const classesWithStudentCount = await Promise.all((classesData || []).map(async (classItem) => {
-        const { count, error: countError } = await supabase
-          .from('enrollments')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_id', classItem.id);
-          
-        if (countError) throw countError;
-        
-        return {
-          ...classItem,
-          studentCount: count || 0
-        };
+      // Add student count to each class
+      const classesWithStudentCount = classesData.map(classItem => ({
+        id: classItem.id,
+        name: classItem.name,
+        description: classItem.description,
+        imageUrl: classItem.imageUrl,
+        createdAt: classItem.createdAt,
+        studentCount: classItem.enrollments.length || 0
       }));
 
       setClasses(classesWithStudentCount);
@@ -106,19 +105,14 @@ export default function TeacherClasses() {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('classes')
-        .insert([
-          {
-            name: className.trim(),
-            description: classDescription.trim(),
-            image_url: imageUrl.trim() || null,
-            teacher_id: user?.id
-          }
-        ])
-        .select();
-
-      if (error) throw error;
+      const newClass = await prisma.class.create({
+        data: {
+          name: className.trim(),
+          description: classDescription.trim() || null,
+          imageUrl: imageUrl.trim() || null,
+          teacherId: user?.id
+        }
+      });
 
       // Reset form
       setClassName('');
@@ -137,12 +131,11 @@ export default function TeacherClasses() {
 
   const handleDeleteClass = async (classId: string) => {
     try {
-      const { error } = await supabase
-        .from('classes')
-        .delete()
-        .eq('id', classId);
-
-      if (error) throw error;
+      await prisma.class.delete({
+        where: {
+          id: classId
+        }
+      });
       
       toast.showToast('Class deleted', 'success');
       fetchClasses();
@@ -161,29 +154,31 @@ export default function TeacherClasses() {
     try {
       setFetchingStudents(true);
       
-      // Get enrollments for this class
-      const { data: enrollmentsData, error: enrollmentsError } = await supabase
-        .from('enrollments')
-        .select('student_id')
-        .eq('class_id', classId);
-        
-      if (enrollmentsError) throw enrollmentsError;
+      // Get enrollments with student data for this class
+      const enrollments = await prisma.enrollment.findMany({
+        where: {
+          classId: classId
+        },
+        include: {
+          student: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              avatarUrl: true
+            }
+          }
+        }
+      });
       
-      if (!enrollmentsData || enrollmentsData.length === 0) {
+      if (!enrollments || enrollments.length === 0) {
         setClassStudents([]);
         return;
       }
       
-      // Get student profiles
-      const studentIds = enrollmentsData.map(enrollment => enrollment.student_id);
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .in('id', studentIds);
-        
-      if (studentsError) throw studentsError;
-      
-      setClassStudents(studentsData || []);
+      // Extract student data from enrollments
+      const students = enrollments.map(enrollment => enrollment.student);
+      setClassStudents(students);
     } catch (error) {
       console.error('Error fetching class students:', error);
       toast.showToast('Failed to load students', 'error');
@@ -202,17 +197,35 @@ export default function TeacherClasses() {
       setSearching(true);
       
       // Search for students by name or email
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .eq('role', 'student')
-        .or(`full_name.ilike.%${query}%,email.ilike.%${query}%`)
-        .limit(10);
-        
-      if (error) throw error;
+      const students = await prisma.user.findMany({
+        where: {
+          role: 'student',
+          OR: [
+            {
+              fullName: {
+                contains: query,
+                mode: 'insensitive'
+              }
+            },
+            {
+              email: {
+                contains: query,
+                mode: 'insensitive'
+              }
+            }
+          ]
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          avatarUrl: true
+        },
+        take: 10
+      });
       
       // Filter out students already in the class
-      const filteredResults = (data || []).filter(
+      const filteredResults = students.filter(
         student => !classStudents.some(cs => cs.id === student.id)
       );
       
@@ -230,16 +243,12 @@ export default function TeacherClasses() {
     
     try {
       // Add student to class
-      const { error } = await supabase
-        .from('enrollments')
-        .insert([
-          {
-            student_id: studentId,
-            class_id: selectedClass.id
-          }
-        ]);
-        
-      if (error) throw error;
+      await prisma.enrollment.create({
+        data: {
+          studentId: studentId,
+          classId: selectedClass.id
+        }
+      });
       
       // Update the student list
       fetchClassStudents(selectedClass.id);
@@ -259,16 +268,15 @@ export default function TeacherClasses() {
     if (!selectedClass) return;
     
     try {
-      const { error } = await supabase
-        .from('enrollments')
-        .delete()
-        .eq('class_id', selectedClass.id)
-        .eq('student_id', studentId);
-        
-      if (error) throw error;
+      await prisma.enrollment.deleteMany({
+        where: {
+          studentId: studentId,
+          classId: selectedClass.id
+        }
+      });
       
       // Update the student list
-      setClassStudents(classStudents.filter(student => student.id !== studentId));
+      fetchClassStudents(selectedClass.id);
       toast.showToast('Student removed from class', 'success');
     } catch (error) {
       console.error('Error removing student from class:', error);
@@ -302,9 +310,9 @@ export default function TeacherClasses() {
                 {selectedClass.description || 'No description available'}
               </Text>
               
-              {selectedClass.image_url && (
+              {selectedClass.imageUrl && (
                 <Image 
-                  source={{ uri: selectedClass.image_url }} 
+                  source={{ uri: selectedClass.imageUrl }} 
                   style={styles.classImage}
                   resizeMode="cover"
                 />
@@ -332,11 +340,11 @@ export default function TeacherClasses() {
                       <View style={styles.studentInfo}>
                         <View style={[styles.avatarCircle, { backgroundColor: colors.tint + '20' }]}>
                           <Text style={[styles.avatarText, { color: colors.tint }]}>
-                            {student.full_name.charAt(0).toUpperCase()}
+                            {student.fullName?.charAt(0)?.toUpperCase() || ''}
                           </Text>
                         </View>
                         <View style={styles.studentTextInfo}>
-                          <Text style={[styles.studentName, { color: colors.text }]}>{student.full_name}</Text>
+                          <Text style={[styles.studentName, { color: colors.text }]}>{student.fullName}</Text>
                           <Text style={[styles.studentEmail, { color: colors.icon }]}>{student.email}</Text>
                         </View>
                       </View>
@@ -416,11 +424,11 @@ export default function TeacherClasses() {
                     <View style={styles.studentInfo}>
                       <View style={[styles.avatarCircle, { backgroundColor: colors.tint + '20' }]}>
                         <Text style={[styles.avatarText, { color: colors.tint }]}>
-                          {item.full_name.charAt(0).toUpperCase()}
+                          {item.fullName?.charAt(0)?.toUpperCase() || ''}
                         </Text>
                       </View>
                       <View style={styles.studentTextInfo}>
-                        <Text style={[styles.studentName, { color: colors.text }]}>{item.full_name}</Text>
+                        <Text style={[styles.studentName, { color: colors.text }]}>{item.fullName}</Text>
                         <Text style={[styles.studentEmail, { color: colors.icon }]}>{item.email}</Text>
                       </View>
                     </View>

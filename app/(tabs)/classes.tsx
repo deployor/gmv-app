@@ -5,10 +5,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
-import { Database } from '../../types/supabase';
+import { prisma } from '../../lib/prisma';
 
-type Class = Database['public']['Tables']['classes']['Row'] & {
+type Class = {
+  id: string;
+  name: string;
+  description: string | null;
+  teacherId: string | null;
+  imageUrl: string | null;
+  createdAt: Date;
+  teacher?: {
+    id: string;
+    fullName: string | null;
+  } | null;
   color?: string;
   teacher_name?: string;
   schedule?: string;
@@ -44,66 +53,101 @@ export default function ClassesScreen() {
     try {
       setLoading(true);
       
-      // Build the query based on the user's role
-      let classesQuery = supabase.from('classes').select('*, profiles:teacher_id(fullName)');
-      
       if (user?.role === 'student') {
         // Students only see enrolled classes
-        if (activeTab === 'all') {
-          const { data: enrollments } = await supabase
-            .from('enrollments')
-            .select('class_id')
-            .eq('student_id', user.id);
-            
-          if (enrollments && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.class_id);
-            classesQuery = classesQuery.in('id', classIds);
-          } else {
-            setClasses([]);
-            setLoading(false);
-            return;
-          }
-        } else if (activeTab === 'today' || activeTab === 'upcoming') {
+        if (activeTab === 'all' || activeTab === 'today' || activeTab === 'upcoming') {
           // In a real app, we would filter by schedule data
           // For now, just show the same data in all tabs
-          const { data: enrollments } = await supabase
-            .from('enrollments')
-            .select('class_id')
-            .eq('student_id', user.id);
+          const enrollments = await prisma.enrollment.findMany({
+            where: {
+              studentId: user.id
+            },
+            include: {
+              class: {
+                include: {
+                  teacher: {
+                    select: {
+                      id: true,
+                      fullName: true
+                    }
+                  }
+                }
+              }
+            }
+          });
             
           if (enrollments && enrollments.length > 0) {
-            const classIds = enrollments.map(e => e.class_id);
-            classesQuery = classesQuery.in('id', classIds);
+            // Format the data and add colors
+            const formattedClasses = enrollments.map((enrollment, index) => {
+              const cls = enrollment.class;
+              return {
+                ...cls,
+                color: CLASS_COLORS[index % CLASS_COLORS.length],
+                teacher_name: cls.teacher?.fullName || 'Unknown Teacher',
+                // In a real app, this would come from a schedule table
+                schedule: getRandomSchedule()
+              };
+            });
+            
+            setClasses(formattedClasses);
           } else {
             setClasses([]);
-            setLoading(false);
-            return;
           }
         }
       } else if (user?.role === 'teacher') {
         // Teachers only see classes they teach
-        classesQuery = classesQuery.eq('teacher_id', user.id);
+        const teacherClasses = await prisma.class.findMany({
+          where: {
+            teacherId: user.id
+          },
+          include: {
+            teacher: {
+              select: {
+                id: true,
+                fullName: true
+              }
+            }
+          }
+        });
+        
+        // Format the data and add colors
+        const formattedClasses = teacherClasses.map((cls, index) => {
+          return {
+            ...cls,
+            color: CLASS_COLORS[index % CLASS_COLORS.length],
+            teacher_name: cls.teacher?.fullName || 'Unknown Teacher',
+            // In a real app, this would come from a schedule table
+            schedule: getRandomSchedule()
+          };
+        });
+        
+        setClasses(formattedClasses);
+      } else {
+        // Admin sees all classes
+        const allClasses = await prisma.class.findMany({
+          include: {
+            teacher: {
+              select: {
+                id: true,
+                fullName: true
+              }
+            }
+          }
+        });
+        
+        // Format the data and add colors
+        const formattedClasses = allClasses.map((cls, index) => {
+          return {
+            ...cls,
+            color: CLASS_COLORS[index % CLASS_COLORS.length],
+            teacher_name: cls.teacher?.fullName || 'Unknown Teacher',
+            // In a real app, this would come from a schedule table
+            schedule: getRandomSchedule()
+          };
+        });
+        
+        setClasses(formattedClasses);
       }
-      
-      const { data, error } = await classesQuery;
-      
-      if (error) {
-        console.error('Error fetching classes:', error);
-        return;
-      }
-      
-      // Format the data and add colors
-      const formattedClasses = data.map((cls, index) => {
-        return {
-          ...cls,
-          color: CLASS_COLORS[index % CLASS_COLORS.length],
-          teacher_name: cls.profiles?.fullName || 'Unknown Teacher',
-          // In a real app, this would come from a schedule table
-          schedule: getRandomSchedule(), 
-        };
-      });
-      
-      setClasses(formattedClasses);
     } catch (error) {
       console.error('Error loading classes:', error);
     } finally {

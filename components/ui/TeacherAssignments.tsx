@@ -5,7 +5,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,7 +16,7 @@ import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 interface ClassItem {
   id: string;
@@ -28,26 +27,26 @@ interface AssignmentItem {
   id: string;
   title: string;
   description: string | null;
-  due_date: string;
-  class_id: string;
+  dueDate: Date;
+  classId: string;
   points: number;
-  class_name?: string;
-  submission_count?: number;
-  created_at: string;
+  className?: string;
+  submissionCount?: number;
+  createdAt: Date;
 }
 
 interface SubmissionItem {
   id: string;
-  student_id: string;
-  assignment_id: string;
-  content: string;
-  file_url: string | null;
+  studentId: string;
+  assignmentId: string;
+  content: string | null;
+  fileUrl: string | null;
   grade: number | null;
   feedback: string | null;
-  is_graded: boolean;
-  created_at: string;
-  student_name?: string;
-  student_email?: string;
+  isGraded: boolean;
+  createdAt: Date;
+  studentName?: string;
+  studentEmail?: string;
 }
 
 export default function TeacherAssignments() {
@@ -85,13 +84,18 @@ export default function TeacherAssignments() {
     try {
       setFetchingClasses(true);
       
-      const { data, error } = await supabase
-        .from('classes')
-        .select('id, name')
-        .eq('teacher_id', user.id)
-        .order('name');
-
-      if (error) throw error;
+      const data = await prisma.class.findMany({
+        where: {
+          teacherId: user.id
+        },
+        select: {
+          id: true,
+          name: true
+        },
+        orderBy: {
+          name: 'asc'
+        }
+      });
       
       setClasses(data || []);
       
@@ -114,54 +118,70 @@ export default function TeacherAssignments() {
       setFetchingAssignments(true);
       
       // Get classes taught by this teacher
-      const { data: classesData, error: classesError } = await supabase
-        .from('classes')
-        .select('id')
-        .eq('teacher_id', user.id);
+      const classesData = await prisma.class.findMany({
+        where: {
+          teacherId: user.id
+        },
+        select: {
+          id: true
+        }
+      });
         
-      if (classesError) throw classesError;
-      
       if (!classesData || classesData.length === 0) {
         setAssignments([]);
         return;
       }
       
-      const classIds = classesData.map(c => c.id);
+      const classIds = classesData.map((c: { id: string }) => c.id);
       
       // Get assignments for these classes
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          *,
-          classes:class_id (name)
-        `)
-        .in('class_id', classIds)
-        .order('due_date', { ascending: false });
+      const assignmentsData = await prisma.assignment.findMany({
+        where: {
+          classId: {
+            in: classIds
+          }
+        },
+        include: {
+          class: {
+            select: {
+              name: true
+            }
+          }
+        },
+        orderBy: {
+          dueDate: 'desc'
+        }
+      });
         
-      if (assignmentsError) throw assignmentsError;
-      
       // Process assignment data
-      const processedAssignments = (assignmentsData || []).map(assignment => {
+      const processedAssignments = assignmentsData.map((assignment) => {
         return {
-          ...assignment,
-          class_name: assignment.classes?.name
+          id: assignment.id,
+          title: assignment.title,
+          description: assignment.description,
+          dueDate: assignment.dueDate,
+          classId: assignment.classId,
+          points: assignment.points,
+          createdAt: assignment.createdAt,
+          className: assignment.class.name
         };
       });
       
       // For each assignment, count submissions
-      const assignmentsWithSubmissionCount = await Promise.all(processedAssignments.map(async (assignment) => {
-        const { count, error: countError } = await supabase
-          .from('submissions')
-          .select('*', { count: 'exact', head: true })
-          .eq('assignment_id', assignment.id);
+      const assignmentsWithSubmissionCount = await Promise.all(
+        processedAssignments.map(async (assignment) => {
+          const count = await prisma.submission.count({
+            where: {
+              assignmentId: assignment.id
+            }
+          });
           
-        if (countError) throw countError;
-        
-        return {
-          ...assignment,
-          submission_count: count || 0
-        };
-      }));
+          return {
+            ...assignment,
+            submissionCount: count || 0
+          };
+        })
+      );
       
       setAssignments(assignmentsWithSubmissionCount);
     } catch (error) {
@@ -181,19 +201,15 @@ export default function TeacherAssignments() {
     try {
       setLoading(true);
       
-      const { error } = await supabase
-        .from('assignments')
-        .insert([
-          {
-            title: title.trim(),
-            description: description.trim() || null,
-            due_date: dueDate.toISOString(),
-            class_id: selectedClassId,
-            points: parseInt(points, 10) || 100
-          }
-        ]);
-
-      if (error) throw error;
+      await prisma.assignment.create({
+        data: {
+          title: title.trim(),
+          description: description.trim() || null,
+          dueDate: dueDate,
+          classId: selectedClassId,
+          points: parseInt(points, 10) || 100
+        }
+      });
 
       // Reset form
       setTitle('');
@@ -213,12 +229,11 @@ export default function TeacherAssignments() {
 
   const handleDeleteAssignment = async (assignmentId: string) => {
     try {
-      const { error } = await supabase
-        .from('assignments')
-        .delete()
-        .eq('id', assignmentId);
-
-      if (error) throw error;
+      await prisma.assignment.delete({
+        where: {
+          id: assignmentId
+        }
+      });
       
       toast.showToast('Assignment deleted', 'success');
       fetchAssignments();
@@ -243,34 +258,44 @@ export default function TeacherAssignments() {
       setFetchingSubmissions(true);
       
       // Get submissions for this assignment
-      const { data: submissionsData, error: submissionsError } = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('assignment_id', assignmentId);
+      const submissionsData = await prisma.submission.findMany({
+        where: {
+          assignmentId: assignmentId
+        }
+      });
         
-      if (submissionsError) throw submissionsError;
-      
       if (!submissionsData || submissionsData.length === 0) {
         setSubmissions([]);
         return;
       }
       
       // Get student profiles for these submissions
-      const studentIds = submissionsData.map(sub => sub.student_id);
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', studentIds);
-        
-      if (studentsError) throw studentsError;
+      const studentIds = submissionsData.map((sub: { studentId: string }) => sub.studentId);
       
-      // Combine data
-      const processedSubmissions = submissionsData.map(submission => {
-        const student = studentsData?.find(s => s.id === submission.student_id);
+      const studentsData = await prisma.user.findMany({
+        where: {
+          id: {
+            in: studentIds
+          }
+        }
+      });
+        
+      // Process submissions with student data
+      const processedSubmissions = submissionsData.map((submission) => {
+        const student = studentsData?.find((s: { id: string }) => s.id === submission.studentId);
+        
         return {
-          ...submission,
-          student_name: student?.full_name || 'Unknown Student',
-          student_email: student?.email || ''
+          id: submission.id,
+          studentId: submission.studentId,
+          assignmentId: submission.assignmentId,
+          content: submission.content || '',
+          fileUrl: submission.fileUrl,
+          grade: submission.grade,
+          feedback: submission.feedback,
+          isGraded: submission.isGraded,
+          createdAt: submission.createdAt,
+          studentName: student?.fullName || 'Unknown',
+          studentEmail: student?.email || 'No email'
         };
       });
       
@@ -293,54 +318,52 @@ export default function TeacherAssignments() {
     if (!selectedSubmission) return;
     
     try {
-      setLoading(true);
-      
       const gradeValue = grade ? parseInt(grade, 10) : null;
       
-      const { error } = await supabase
-        .from('submissions')
-        .update({
+      await prisma.submission.update({
+        where: {
+          id: selectedSubmission.id
+        },
+        data: {
           grade: gradeValue,
-          feedback: feedback.trim() || null,
-          is_graded: Boolean(gradeValue !== null)
-        })
-        .eq('id', selectedSubmission.id);
-        
-      if (error) throw error;
+          feedback: feedback || null,
+          isGraded: gradeValue !== null
+        }
+      });
       
-      // Update local state
-      setSubmissions(submissions.map(sub => 
-        sub.id === selectedSubmission.id 
-          ? {
-              ...sub,
-              grade: gradeValue,
-              feedback: feedback.trim() || null,
-              is_graded: Boolean(gradeValue !== null)
-            }
-          : sub
-      ));
+      // Update the submission in our local state
+      setSubmissions(prev => 
+        prev.map(sub => 
+          sub.id === selectedSubmission.id 
+            ? { 
+                ...sub, 
+                grade: gradeValue, 
+                feedback, 
+                isGraded: gradeValue !== null 
+              } 
+            : sub
+        )
+      );
       
-      // Close the submission view
+      // Close the modal
       setSelectedSubmission(null);
       
       toast.showToast('Submission graded successfully', 'success');
     } catch (error) {
       console.error('Error grading submission:', error);
-      toast.showToast('Failed to update grade', 'error');
-    } finally {
-      setLoading(false);
+      toast.showToast('Failed to grade submission', 'error');
     }
   };
 
   const onChangeDatePicker = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
+    setShowDatePicker(false);
     if (selectedDate) {
       setDueDate(selectedDate);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateValue: Date) => {
+    return new Date(dateValue).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -373,13 +396,13 @@ export default function TeacherAssignments() {
               <View style={styles.assignmentDetails}>
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>Class:</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedAssignment.class_name}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedAssignment.className}</Text>
                 </View>
                 
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>Due Date:</Text>
                   <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {formatDate(selectedAssignment.due_date)}
+                    {formatDate(selectedAssignment.dueDate)}
                   </Text>
                 </View>
                 
@@ -413,13 +436,13 @@ export default function TeacherAssignments() {
                       onPress={() => handleViewSubmission(submission)}
                     >
                       <View style={styles.submissionInfo}>
-                        <Text style={[styles.studentName, { color: colors.text }]}>{submission.student_name}</Text>
+                        <Text style={[styles.studentName, { color: colors.text }]}>{submission.studentName}</Text>
                         <Text style={[styles.submissionDate, { color: colors.icon }]}>
-                          Submitted: {formatDate(submission.created_at)}
+                          Submitted: {formatDate(submission.createdAt)}
                         </Text>
                       </View>
                       <View style={styles.gradeBadge}>
-                        {submission.is_graded ? (
+                        {submission.isGraded ? (
                           <View style={[styles.gradeContainer, { backgroundColor: colors.tint + '20' }]}>
                             <Text style={[styles.gradeText, { color: colors.tint }]}>
                               {submission.grade}/{selectedAssignment.points}
@@ -466,18 +489,18 @@ export default function TeacherAssignments() {
               <View style={styles.submissionDetails}>
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>Student:</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedSubmission.student_name}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedSubmission.studentName}</Text>
                 </View>
                 
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>Email:</Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedSubmission.student_email}</Text>
+                  <Text style={[styles.detailValue, { color: colors.text }]}>{selectedSubmission.studentEmail}</Text>
                 </View>
                 
                 <View style={styles.detailItem}>
                   <Text style={[styles.detailLabel, { color: colors.icon }]}>Submitted:</Text>
                   <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {formatDate(selectedSubmission.created_at)}
+                    {formatDate(selectedSubmission.createdAt)}
                   </Text>
                 </View>
                 
@@ -492,7 +515,7 @@ export default function TeacherAssignments() {
                   </View>
                 )}
                 
-                {selectedSubmission.file_url && (
+                {selectedSubmission.fileUrl && (
                   <View style={styles.fileContainer}>
                     <Text style={[styles.detailLabel, { color: colors.icon }]}>Attached File:</Text>
                     <TouchableOpacity 
@@ -579,7 +602,11 @@ export default function TeacherAssignments() {
               dropdownIconColor={colors.icon}
             >
               {classes.map(classItem => (
-                <Picker.Item key={classItem.id} label={classItem.name} value={classItem.id} />
+                <Picker.Item 
+                  key={classItem.id} 
+                  label={classItem.name} 
+                  value={classItem.id} 
+                />
               ))}
             </Picker>
           )}
@@ -673,15 +700,15 @@ export default function TeacherAssignments() {
                   <View style={styles.assignmentInfo}>
                     <Text style={[styles.assignmentTitle, { color: colors.text }]}>{assignment.title}</Text>
                     <Text style={[styles.assignmentClass, { color: colors.icon }]}>
-                      {assignment.class_name} • {assignment.submission_count} submissions
+                      {assignment.className} • {assignment.submissionCount} submissions
                     </Text>
                     <Text style={[
                       styles.assignmentDue, 
                       { 
-                        color: new Date(assignment.due_date) < new Date() ? '#FF3B30' : colors.icon 
+                        color: new Date(assignment.dueDate) < new Date() ? '#FF3B30' : colors.icon 
                       }
                     ]}>
-                      Due: {formatDate(assignment.due_date)}
+                      Due: {formatDate(assignment.dueDate)}
                     </Text>
                   </View>
                   

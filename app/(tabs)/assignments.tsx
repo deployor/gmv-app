@@ -7,17 +7,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
-import { Database } from '../../types/supabase';
+import { prisma } from '../../lib/prisma';
 
-type Assignment = Database['public']['Tables']['assignments']['Row'] & {
+// Define types
+type Assignment = {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: Date;
+  classId: string;
+  points: number;
+  createdAt: Date;
   course?: string;
   status?: 'upcoming' | 'completed';
   courseColor?: string;
   formattedDueDate?: string;
 };
 
-type Submission = Database['public']['Tables']['submissions']['Row'];
+type Submission = {
+  id: string;
+  studentId: string;
+  assignmentId: string;
+  content: string | null;
+  fileUrl: string | null;
+  grade: number | null;
+  feedback: string | null;
+  isGraded: boolean;
+  createdAt: Date;
+};
+
+type ClassInfo = {
+  id: string;
+  name: string;
+};
 
 // Color palette for courses
 const COURSE_COLORS = [
@@ -40,15 +62,15 @@ export default function AssignmentsScreen() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const [classMap, setClassMap] = useState<Record<string, { name: string, color: string }>>({});
-  const [classes, setClasses] = useState<{ id: string, name: string }[]>([]);
+  const [classes, setClasses] = useState<ClassInfo[]>([]);
   
   // New assignment state
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [newAssignment, setNewAssignment] = useState({
     title: '',
     description: '',
-    class_id: '',
-    due_date: new Date(),
+    classId: '',
+    dueDate: new Date(),
     points: 100
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -63,19 +85,21 @@ export default function AssignmentsScreen() {
     try {
       setLoading(true);
       
-      // First, fetch all classes the user has access to
-      let classesQuery = supabase.from('classes').select('*');
+      let classesData: any[] = [];
       
       if (user?.role === 'student') {
         // Students only see classes they're enrolled in
-        const { data: enrollments } = await supabase
-          .from('enrollments')
-          .select('class_id')
-          .eq('student_id', user.id);
+        const enrollments = await prisma.enrollment.findMany({
+          where: {
+            studentId: user.id
+          },
+          include: {
+            class: true
+          }
+        });
           
         if (enrollments && enrollments.length > 0) {
-          const classIds = enrollments.map(e => e.class_id);
-          classesQuery = classesQuery.in('id', classIds);
+          classesData = enrollments.map(enrollment => enrollment.class);
         } else {
           setAssignments([]);
           setLoading(false);
@@ -83,19 +107,19 @@ export default function AssignmentsScreen() {
         }
       } else if (user?.role === 'teacher') {
         // Teachers only see their own classes
-        classesQuery = classesQuery.eq('teacher_id', user.id);
-      }
-      
-      const { data: classesData, error: classesError } = await classesQuery;
-      
-      if (classesError) {
-        console.error('Error fetching classes:', classesError);
-        return;
+        classesData = await prisma.class.findMany({
+          where: {
+            teacherId: user.id
+          }
+        });
+      } else {
+        // Admins see all classes
+        classesData = await prisma.class.findMany();
       }
       
       // Create a map of class IDs to class names and colors for later use
       const classMapData: Record<string, { name: string, color: string }> = {};
-      classesData?.forEach((cls, index) => {
+      classesData.forEach((cls, index) => {
         classMapData[cls.id] = { 
           name: cls.name, 
           color: COURSE_COLORS[index % COURSE_COLORS.length] 
@@ -104,57 +128,58 @@ export default function AssignmentsScreen() {
       setClassMap(classMapData);
       
       // Save classes for the new assignment modal
-      setClasses(classesData?.map(c => ({ id: c.id, name: c.name })) || []);
+      setClasses(classesData.map(c => ({ id: c.id, name: c.name })));
       
-      // Set default class_id if this is a teacher and they have classes
-      if (user?.role === 'teacher' && classesData && classesData.length > 0 && !newAssignment.class_id) {
-        setNewAssignment(prev => ({ ...prev, class_id: classesData[0].id }));
+      // Set default classId if this is a teacher and they have classes
+      if (user?.role === 'teacher' && classesData && classesData.length > 0 && !newAssignment.classId) {
+        setNewAssignment(prev => ({ ...prev, classId: classesData[0].id }));
       }
       
       // Fetch assignments for those classes
-      const classIds = classesData?.map(c => c.id) || [];
+      const classIds = classesData.map(c => c.id);
       if (classIds.length === 0) {
         setAssignments([]);
         setLoading(false);
         return;
       }
       
-      let assignmentsQuery = supabase
-        .from('assignments')
-        .select('*')
-        .in('class_id', classIds);
-
-      if (activeTab === 'upcoming') {
-        // Only fetch assignments with due dates in the future
-        assignmentsQuery = assignmentsQuery.gte('due_date', new Date().toISOString());
-      }
-      
-      const { data: assignmentsData, error: assignmentsError } = await assignmentsQuery;
-      
-      if (assignmentsError) {
-        console.error('Error fetching assignments:', assignmentsError);
-        return;
-      }
+      // Get assignments based on active tab
+      const currentDate = new Date();
+      const assignmentsData = await prisma.assignment.findMany({
+        where: {
+          classId: {
+            in: classIds
+          },
+          ...(activeTab === 'upcoming' && {
+            dueDate: {
+              gte: currentDate
+            }
+          })
+        }
+      });
       
       // For student role, check which assignments are completed
       let submissionsData: Submission[] = [];
       if (user?.role === 'student') {
-        const { data: submissions, error: submissionsError } = await supabase
-          .from('submissions')
-          .select('*')
-          .eq('student_id', user.id)
-          .in('assignment_id', assignmentsData?.map(a => a.id) || []);
+        const submissions = await prisma.submission.findMany({
+          where: {
+            studentId: user.id,
+            assignmentId: {
+              in: assignmentsData.map(a => a.id)
+            }
+          }
+        });
           
-        if (!submissionsError && submissions) {
+        if (submissions) {
           submissionsData = submissions;
         }
       }
       
       // Format the assignments with additional data
-      const formattedAssignments = assignmentsData?.map(assignment => {
-        const classInfo = classMapData[assignment.class_id] || { name: 'Unknown Class', color: '#888888' };
-        const dueDate = new Date(assignment.due_date);
-        const isCompleted = submissionsData.some(s => s.assignment_id === assignment.id);
+      const formattedAssignments = assignmentsData.map(assignment => {
+        const classInfo = classMapData[assignment.classId] || { name: 'Unknown Class', color: '#888888' };
+        const dueDate = new Date(assignment.dueDate);
+        const isCompleted = submissionsData.some(s => s.assignmentId === assignment.id);
         
         // Format the due date
         let formattedDueDate;
@@ -174,8 +199,8 @@ export default function AssignmentsScreen() {
         
         // For completed assignments
         if (isCompleted && activeTab === 'completed') {
-          const submission = submissionsData.find(s => s.assignment_id === assignment.id);
-          const submissionDate = submission ? new Date(submission.created_at) : new Date();
+          const submission = submissionsData.find(s => s.assignmentId === assignment.id);
+          const submissionDate = submission ? new Date(submission.createdAt) : new Date();
           formattedDueDate = `Completed on ${submissionDate.toLocaleDateString()}`;
         }
         
@@ -183,10 +208,10 @@ export default function AssignmentsScreen() {
           ...assignment,
           course: classInfo.name,
           courseColor: classInfo.color,
-          status: isCompleted ? 'completed' : 'upcoming',
+          status: isCompleted ? 'completed' as const : 'upcoming' as const,
           formattedDueDate,
         };
-      }) || [];
+      });
       
       // Filter based on active tab
       const filteredByStatus = formattedAssignments.filter(a => {
@@ -211,7 +236,7 @@ export default function AssignmentsScreen() {
   });
 
   const handleCreateAssignment = async () => {
-    if (!newAssignment.title || !newAssignment.class_id) {
+    if (!newAssignment.title || !newAssignment.classId) {
       Alert.alert('Missing fields', 'Please fill in the required fields');
       return;
     }
@@ -219,25 +244,22 @@ export default function AssignmentsScreen() {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('assignments')
-        .insert({
+      await prisma.assignment.create({
+        data: {
           title: newAssignment.title,
           description: newAssignment.description || null,
-          class_id: newAssignment.class_id,
-          due_date: newAssignment.due_date.toISOString(),
+          classId: newAssignment.classId,
+          dueDate: newAssignment.dueDate,
           points: newAssignment.points
-        })
-        .select();
+        }
+      });
         
-      if (error) throw error;
-      
       // Reset form and close modal
       setNewAssignment({
         title: '',
         description: '',
-        class_id: classes.length > 0 ? classes[0].id : '',
-        due_date: new Date(),
+        classId: classes.length > 0 ? classes[0].id : '',
+        dueDate: new Date(),
         points: 100
       });
       
@@ -248,6 +270,7 @@ export default function AssignmentsScreen() {
       
       Alert.alert('Success', 'Assignment created successfully');
     } catch (error: any) {
+      console.error('Error creating assignment:', error);
       Alert.alert('Error', error.message || 'Failed to create assignment');
     } finally {
       setLoading(false);
@@ -257,7 +280,7 @@ export default function AssignmentsScreen() {
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
     if (selectedDate) {
-      setNewAssignment(prev => ({ ...prev, due_date: selectedDate }));
+      setNewAssignment(prev => ({ ...prev, dueDate: selectedDate }));
     }
   };
 
@@ -278,6 +301,34 @@ export default function AssignmentsScreen() {
         </Text>
       </View>
     </TouchableOpacity>
+  );
+
+  const renderClassOptions = () => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.classOptionsContainer}>
+      {classes.map(cls => (
+        <TouchableOpacity
+          key={cls.id}
+          style={[
+            styles.classOption,
+            newAssignment.classId === cls.id && { backgroundColor: colors.tint + '20' }
+          ]}
+          onPress={() => setNewAssignment(prev => ({ ...prev, classId: cls.id }))}
+        >
+          <Text
+            style={[
+              styles.classOptionText,
+              { color: colors.text },
+              newAssignment.classId === cls.id && { color: colors.tint }
+            ]}
+          >
+            {cls.name}
+          </Text>
+          {newAssignment.classId === cls.id && (
+            <Ionicons name="checkmark" size={18} color={colors.tint} />
+          )}
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
   );
 
   return (
@@ -405,48 +456,25 @@ export default function AssignmentsScreen() {
               />
               
               <Text style={[styles.inputLabel, { color: colors.text }]}>Class *</Text>
-              <View style={[styles.selectContainer, { borderColor: colors.icon }]}>
-                {classes.map(cls => (
-                  <TouchableOpacity
-                    key={cls.id}
-                    style={[
-                      styles.classOption,
-                      newAssignment.class_id === cls.id && { backgroundColor: colors.tint + '20' }
-                    ]}
-                    onPress={() => setNewAssignment(prev => ({ ...prev, class_id: cls.id }))}
-                  >
-                    <Text
-                      style={[
-                        styles.classOptionText,
-                        { color: colors.text },
-                        newAssignment.class_id === cls.id && { color: colors.tint }
-                      ]}
-                    >
-                      {cls.name}
-                    </Text>
-                    {newAssignment.class_id === cls.id && (
-                      <Ionicons name="checkmark" size={18} color={colors.tint} />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
+              {renderClassOptions()}
               
               <Text style={[styles.inputLabel, { color: colors.text }]}>Due Date *</Text>
               <TouchableOpacity
-                style={[styles.dateButton, { borderColor: colors.icon }]}
+                style={[styles.input, { borderColor: colors.icon }]}
                 onPress={() => setShowDatePicker(true)}
               >
                 <Text style={{ color: colors.text }}>
-                  {newAssignment.due_date.toLocaleString()}
+                  {newAssignment.dueDate.toLocaleString()}
                 </Text>
               </TouchableOpacity>
               
               {showDatePicker && (
                 <DateTimePicker
-                  value={newAssignment.due_date}
+                  value={newAssignment.dueDate}
                   mode="datetime"
                   display="default"
                   onChange={handleDateChange}
+                  minimumDate={new Date()}
                 />
               )}
               
@@ -657,6 +685,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
   },
+  classOptionsContainer: {
+    padding: 12,
+  },
   classOption: {
     padding: 12,
     borderBottomWidth: 1,
@@ -667,14 +698,6 @@ const styles = StyleSheet.create({
   },
   classOptionText: {
     fontSize: 16,
-  },
-  dateButton: {
-    height: 50,
-    borderWidth: 1,
-    borderRadius: 8,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
   },
   createButton: {
     height: 50,

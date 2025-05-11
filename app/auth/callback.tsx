@@ -1,37 +1,46 @@
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
-import { supabase } from '../../lib/supabase';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
 
 export default function AuthCallback() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const params = useLocalSearchParams();
+  const { isSignedIn, user } = useAuth();
 
   useEffect(() => {
     async function handleOAuthCallback() {
       try {
-        // For web, the session is automatically set by Supabase Auth
-        if (typeof window !== 'undefined') {
-          const { error } = await supabase.auth.getSession();
-          if (error) throw error;
-        } 
-        // For native platforms, we should handle the URL params
-        else {
-          // Processing OAuth redirect on native platforms
-          if (params.access_token && params.refresh_token) {
-            const { error } = await supabase.auth.setSession({
-              access_token: params.access_token as string,
-              refresh_token: params.refresh_token as string,
-            });
-            if (error) throw error;
+        // Clerk handles the OAuth callback automatically
+        // We just need to check if the user is signed in and redirect accordingly
+        if (isSignedIn) {
+          // Choose the appropriate redirect based on user role
+          if (user) {
+            switch (user.role) {
+              case 'admin':
+                router.replace('/(admin)/dashboard');
+                break;
+              case 'teacher':
+                router.replace('/(teacher)/dashboard');
+                break;
+              case 'parent':
+                router.replace('/(parent)/dashboard');
+                break;
+              default:
+                router.replace('/(tabs)');
+                break;
+            }
+          } else {
+            // Default to tabs if user data is not available yet
+            router.replace('/(tabs)');
           }
+        } else {
+          // If not signed in, redirect to login page
+          router.replace('/(auth)/login');
         }
-
-        // Navigate to the home screen
-        router.replace('/(tabs)');
       } catch (error) {
         console.error('Error processing OAuth redirect:', error);
         router.replace('/(auth)/login?error=Authentication failed');
@@ -39,7 +48,7 @@ export default function AuthCallback() {
     }
 
     handleOAuthCallback();
-  }, [params]);
+  }, [isSignedIn, user]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

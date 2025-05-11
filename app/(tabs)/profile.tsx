@@ -6,12 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
 
 export default function ProfileScreen() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUserProfile } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const [notifications, setNotifications] = useState(true);
@@ -23,31 +21,17 @@ export default function ProfileScreen() {
   
   useEffect(() => {
     if (user) {
-      getProfile();
+      loadProfile();
     }
   }, [user]);
 
-  async function getProfile() {
+  async function loadProfile() {
     if (!user?.id) return;
     
     try {
       setLoading(true);
-      
-      // Fetch the actual user profile from the database
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-        
-      if (error) {
-        console.error('Error fetching profile:', error);
-        throw error;
-      }
-      
-      if (data) {
-        setProfile(data);
-      }
+      // Refreshes the user profile data from the database
+      await refreshUserProfile();
     } catch (error) {
       console.error('Error loading profile:', error);
     } finally {
@@ -73,39 +57,17 @@ export default function ProfileScreen() {
     try {
       setLinkingStudent(true);
       
-      // First, find the student by email
-      const { data: studentData, error: studentError } = await supabase
-        .from('profiles')
-        .select('id, role')
-        .eq('email', studentEmail)
-        .eq('role', 'student')
-        .single();
-        
-      if (studentError || !studentData) {
-        Alert.alert('Error', 'No student found with that email');
-        return;
-      }
+      // This would typically be handled via an API call to a server endpoint
+      // that uses Prisma to update the database
+      // For now, we'll show an alert that this feature is being implemented
+      Alert.alert(
+        'Feature in Development',
+        'The ability to link with students is currently being implemented. Please check back later.'
+      );
       
-      // Create the relationship
-      const { error: relationshipError } = await supabase
-        .from('parent_student_relationships')
-        .insert({
-          parent_id: user?.id,
-          student_id: studentData.id,
-          relationship_type: relationship
-        });
-        
-      if (relationshipError) {
-        if (relationshipError.code === '23505') {
-          Alert.alert('Already Linked', 'You are already linked to this student');
-        } else {
-          throw relationshipError;
-        }
-      } else {
-        Alert.alert('Success', 'Successfully linked to student');
-        setShowLinkForm(false);
-        setStudentEmail('');
-      }
+      setShowLinkForm(false);
+      setStudentEmail('');
+      
     } catch (error) {
       console.error('Error linking student:', error);
       Alert.alert('Error', 'Failed to link student');
@@ -126,28 +88,28 @@ export default function ProfileScreen() {
         <View style={styles.profileSection}>
           <View style={[styles.avatar, { backgroundColor: colors.tint }]}>
             <Text style={styles.avatarText}>
-              {profile?.fullName?.split(' ').map((n: string) => n[0]).join('') || user?.fullName?.charAt(0) || 'U'}
+              {user?.fullName?.split(' ').map((n: string) => n[0]).join('') || user?.fullName?.charAt(0) || 'U'}
             </Text>
           </View>
-          <Text style={[styles.name, { color: colors.text }]}>{profile?.fullName || user?.fullName || 'User'}</Text>
-          <Text style={[styles.email, { color: colors.icon }]}>{profile?.email || user?.email || 'user@example.com'}</Text>
+          <Text style={[styles.name, { color: colors.text }]}>{user?.fullName || 'User'}</Text>
+          <Text style={[styles.email, { color: colors.icon }]}>{user?.email || 'user@example.com'}</Text>
           
           <View style={styles.infoContainer}>
             <View style={[styles.infoItem, { borderColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
               <Text style={[styles.infoLabel, { color: colors.icon }]}>Role</Text>
               <Text style={[styles.infoValue, { color: colors.text }]}>
-                {(profile?.role || user?.role || 'Student')}
+                {user?.role || 'Student'}
               </Text>
             </View>
             
             <View style={[styles.infoItem, { borderColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
               <Text style={[styles.infoLabel, { color: colors.icon }]}>Grade</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{profile?.grade || 'N/A'}</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>N/A</Text>
             </View>
             
             <View style={[styles.infoItem, { borderColor: colors === Colors.dark ? '#333' : '#EEE' }]}>
               <Text style={[styles.infoLabel, { color: colors.icon }]}>Student ID</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{profile?.student_id || 'N/A'}</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>N/A</Text>
             </View>
           </View>
         </View>

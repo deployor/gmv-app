@@ -16,35 +16,35 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 type Parent = {
   id: string;
-  email: string;
-  full_name: string | null;
-  avatar_url: string | null;
+  email: string | null;
+  fullName: string | null;
+  avatarUrl: string | null;
   children: StudentLink[];
 };
 
 type Student = {
   id: string;
-  email: string;
-  full_name: string | null;
+  email: string | null;
+  fullName: string | null;
 };
 
 type StudentLink = {
   id: string;
-  full_name: string | null;
-  relationship_type: string | null;
+  fullName: string | null;
+  relationshipType: string | null;
 };
 
 type StudentRelationship = {
-  parent_id: string;
-  student_id: string;
-  relationship_type: string | null;
+  parentId: string;
+  studentId: string;
+  relationshipType: string | null;
   student?: {
     id: string;
-    full_name: string | null;
+    fullName: string | null;
   };
 };
 
@@ -77,7 +77,7 @@ export default function AdminParentsScreen() {
   useEffect(() => {
     if (searchQuery) {
       const filtered = parents.filter(parent => {
-        const name = parent.full_name?.toLowerCase() || '';
+        const name = parent.fullName?.toLowerCase() || '';
         const email = parent.email?.toLowerCase() || '';
         const query = searchQuery.toLowerCase();
         
@@ -95,38 +95,40 @@ export default function AdminParentsScreen() {
       setLoading(true);
       
       // Fetch all parent profiles
-      const { data: parentProfiles, error: parentError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'parent');
+      const parentProfiles = await prisma.user.findMany({
+        where: {
+          role: 'parent'
+        }
+      });
         
-      if (parentError) throw parentError;
-      
       // Fetch all student profiles for dropdown
-      const { data: studentProfiles, error: studentError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name')
-        .eq('role', 'student');
+      const studentProfiles = await prisma.user.findMany({
+        where: {
+          role: 'student'
+        },
+        select: {
+          id: true,
+          email: true,
+          fullName: true
+        }
+      });
         
-      if (studentError) throw studentError;
-      
       // Fetch parent-student relationships
-      const { data: relationships, error: relError } = await supabase
-        .from('parent_student_relationships')
-        .select(`
-          id,
-          parent_id,
-          student_id,
-          relationship_type,
-          student:student_id(id, full_name)
-        `);
+      const relationships = await prisma.parentStudentRelationship.findMany({
+        include: {
+          student: {
+            select: {
+              id: true,
+              fullName: true
+            }
+          }
+        }
+      });
         
-      if (relError) throw relError;
-      
       // Build parent objects with children
       const parentMap = new Map<string, Parent>();
       
-      parentProfiles?.forEach(parent => {
+      parentProfiles.forEach(parent => {
         parentMap.set(parent.id, {
           ...parent,
           children: []
@@ -134,29 +136,25 @@ export default function AdminParentsScreen() {
       });
       
       // Add children to parents
-      relationships?.forEach(rel => {
-        const parent = parentMap.get(rel.parent_id);
+      relationships.forEach(rel => {
+        const parent = parentMap.get(rel.parentId);
         if (parent && parent.children) {
           // Default student name
           let studentName = 'Unknown Student';
           
           // Try to safely access the student data
           try {
-            // Handle potential array or object structure
-            if (rel.student) {
-              const student = Array.isArray(rel.student) ? rel.student[0] : rel.student;
-              if (student && typeof student === 'object' && student.full_name) {
-                studentName = String(student.full_name);
-              }
+            if (rel.student && rel.student.fullName) {
+              studentName = rel.student.fullName;
             }
           } catch (e) {
             console.error("Error extracting student name:", e);
           }
           
           parent.children.push({
-            id: rel.student_id,
-            full_name: studentName,
-            relationship_type: rel.relationship_type
+            id: rel.studentId,
+            fullName: studentName,
+            relationshipType: rel.relationshipType
           });
         }
       });
@@ -183,31 +181,27 @@ export default function AdminParentsScreen() {
       setLoading(true);
       
       // Check if this relationship already exists
-      const { data: existing, error: checkError } = await supabase
-        .from('parent_student_relationships')
-        .select('*')
-        .eq('parent_id', linkData.parentId)
-        .eq('student_id', linkData.studentId)
-        .maybeSingle();
+      const existing = await prisma.parentStudentRelationship.findFirst({
+        where: {
+          parentId: linkData.parentId,
+          studentId: linkData.studentId
+        }
+      });
         
-      if (checkError) throw checkError;
-      
       if (existing) {
         Alert.alert('Already Linked', 'This parent and student are already linked');
         return;
       }
       
       // Create the new relationship
-      const { error } = await supabase
-        .from('parent_student_relationships')
-        .insert({
-          parent_id: linkData.parentId,
-          student_id: linkData.studentId,
-          relationship_type: linkData.relationship
-        });
+      await prisma.parentStudentRelationship.create({
+        data: {
+          parentId: linkData.parentId,
+          studentId: linkData.studentId,
+          relationshipType: linkData.relationship
+        }
+      });
         
-      if (error) throw error;
-      
       // Reset the form
       setLinkData({
         parentId: '',
@@ -246,40 +240,29 @@ export default function AdminParentsScreen() {
             try {
               setLoading(true);
               
-              const { error } = await supabase
-                .from('parent_student_relationships')
-                .delete()
-                .eq('parent_id', parentId)
-                .eq('student_id', studentId);
-                
-              if (error) throw error;
+              await prisma.parentStudentRelationship.deleteMany({
+                where: {
+                  parentId: parentId,
+                  studentId: studentId
+                }
+              });
+
+              // Refresh data
+              fetchParentsAndStudents();
               
-              // Update local state
-              setParents(prevParents => 
-                prevParents.map(parent => {
-                  if (parent.id === parentId) {
-                    return {
-                      ...parent,
-                      children: parent.children.filter(child => child.id !== studentId)
-                    };
-                  }
-                  return parent;
-                })
-              );
-              
-              // If details modal is open, update selected parent
-              if (selectedParent && selectedParent.id === parentId) {
+              if (selectedParent) {
+                // Update selected parent children
                 setSelectedParent({
                   ...selectedParent,
                   children: selectedParent.children.filter(child => child.id !== studentId)
                 });
               }
               
-              Alert.alert('Success', 'Unlinked successfully');
+              Alert.alert('Success', 'Parent unlinked from student');
               
-            } catch (error: any) {
-              console.error('Error unlinking:', error);
-              Alert.alert('Error', error.message || 'Failed to unlink');
+            } catch (error) {
+              console.error('Error unlinking parent from student:', error);
+              Alert.alert('Error', 'Failed to unlink parent from student');
             } finally {
               setLoading(false);
             }
@@ -302,7 +285,7 @@ export default function AdminParentsScreen() {
       <View style={styles.parentHeader}>
         <View style={styles.parentInfo}>
           <Text style={[styles.parentName, { color: colors.text }]}>
-            {item.full_name || 'Unnamed Parent'}
+            {item.fullName || 'Unnamed Parent'}
           </Text>
           <Text style={[styles.parentEmail, { color: colors.icon }]}>
             {item.email}
@@ -324,7 +307,7 @@ export default function AdminParentsScreen() {
           {item.children.slice(0, 2).map((child, index) => (
             <View key={child.id} style={styles.childTag}>
               <Text style={styles.childTagText} numberOfLines={1}>
-                {child.full_name || 'Student'}
+                {child.fullName || 'Student'}
               </Text>
             </View>
           ))}
@@ -361,12 +344,12 @@ export default function AdminParentsScreen() {
               <View style={styles.parentProfile}>
                 <View style={[styles.avatarPlaceholder, { backgroundColor: colors.tint }]}>
                   <Text style={styles.avatarText}>
-                    {selectedParent.full_name?.charAt(0) || 'P'}
+                    {selectedParent.fullName?.charAt(0) || 'P'}
                   </Text>
                 </View>
                 
                 <Text style={[styles.detailName, { color: colors.text }]}>
-                  {selectedParent.full_name || 'Unnamed Parent'}
+                  {selectedParent.fullName || 'Unnamed Parent'}
                 </Text>
                 <Text style={[styles.detailEmail, { color: colors.icon }]}>
                   {selectedParent.email}
@@ -405,10 +388,10 @@ export default function AdminParentsScreen() {
                   >
                     <View style={styles.childDetail}>
                       <Text style={[styles.childDetailName, { color: colors.text }]}>
-                        {child.full_name || 'Student'}
+                        {child.fullName || 'Student'}
                       </Text>
                       <Text style={[styles.childRelationship, { color: colors.icon }]}>
-                        {child.relationship_type || 'Parent'}
+                        {child.relationshipType || 'Parent'}
                       </Text>
                     </View>
                     
@@ -457,7 +440,7 @@ export default function AdminParentsScreen() {
                     onPress={() => setLinkData(prev => ({ ...prev, parentId: '' }))}
                   >
                     <Text style={[styles.selectedItemText, { color: colors.text }]}>
-                      {parents.find(p => p.id === linkData.parentId)?.full_name || 
+                      {parents.find(p => p.id === linkData.parentId)?.fullName || 
                        parents.find(p => p.id === linkData.parentId)?.email || 
                        'Selected Parent'}
                     </Text>
@@ -471,7 +454,7 @@ export default function AdminParentsScreen() {
                       onPress={() => setLinkData(prev => ({ ...prev, parentId: parent.id }))}
                     >
                       <Text style={[styles.selectorItemText, { color: colors.text }]}>
-                        {parent.full_name || parent.email}
+                        {parent.fullName || parent.email}
                       </Text>
                     </TouchableOpacity>
                   ))
@@ -489,7 +472,7 @@ export default function AdminParentsScreen() {
                     onPress={() => setLinkData(prev => ({ ...prev, studentId: '' }))}
                   >
                     <Text style={[styles.selectedItemText, { color: colors.text }]}>
-                      {students.find(s => s.id === linkData.studentId)?.full_name || 
+                      {students.find(s => s.id === linkData.studentId)?.fullName || 
                        students.find(s => s.id === linkData.studentId)?.email || 
                        'Selected Student'}
                     </Text>
@@ -503,7 +486,7 @@ export default function AdminParentsScreen() {
                       onPress={() => setLinkData(prev => ({ ...prev, studentId: student.id }))}
                     >
                       <Text style={[styles.selectorItemText, { color: colors.text }]}>
-                        {student.full_name || student.email}
+                        {student.fullName || student.email}
                       </Text>
                     </TouchableOpacity>
                   ))
