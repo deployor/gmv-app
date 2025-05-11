@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 export default function ParentDashboardScreen() {
   const colorScheme = useColorScheme();
@@ -29,23 +29,25 @@ export default function ParentDashboardScreen() {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('parent_student_relationships')
-        .select(`
-          student_id,
-          relationship_type,
-          profiles:student_id(*)
-        `)
-        .eq('parent_id', user.id);
+      const relationships = await prisma.parentStudentRelationship.findMany({
+        where: {
+          parentId: user.id
+        },
+        include: {
+          student: true
+        }
+      });
         
-      if (error) throw error;
-      
-      if (data) {
-        const childrenData = data.map(item => ({
-          id: item.student_id,
-          relationship: item.relationship_type || 'Parent',
-          ...item.profiles
-        }));
+      if (relationships) {
+        const childrenData = relationships.map(item => {
+          // Spread the student first, then override with our custom properties
+          const { id, ...studentRest } = item.student;
+          return {
+            ...studentRest,
+            id: item.studentId,
+            relationship: item.relationshipType || 'Parent',
+          };
+        });
         
         setChildren(childrenData);
       }
@@ -61,17 +63,18 @@ export default function ParentDashboardScreen() {
     if (!user || !user.id) return;
     
     try {
-      const { data, error } = await supabase
-        .from('parent_notifications')
-        .select('*')
-        .eq('parent_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const notifications = await prisma.parentNotification.findMany({
+        where: {
+          parentId: user.id
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: 10
+      });
         
-      if (error) throw error;
-      
-      if (data) {
-        setNotifications(data);
+      if (notifications) {
+        setNotifications(notifications);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -80,18 +83,16 @@ export default function ParentDashboardScreen() {
 
   const markNotificationAsRead = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('parent_notifications')
-        .update({ is_read: true })
-        .eq('id', id);
+      await prisma.parentNotification.update({
+        where: { id },
+        data: { isRead: true }
+      });
         
-      if (error) throw error;
-      
       // Update local state
       setNotifications(prev => 
         prev.map(notification => 
           notification.id === id 
-            ? { ...notification, is_read: true } 
+            ? { ...notification, isRead: true } 
             : notification
         )
       );
@@ -193,7 +194,7 @@ export default function ParentDashboardScreen() {
                   style={[
                     styles.notificationCard, 
                     { backgroundColor: colors === Colors.dark ? '#1E1E1E' : '#F5F5F5' },
-                    !notification.is_read && { borderLeftColor: colors.tint, borderLeftWidth: 4 }
+                    !notification.isRead && { borderLeftColor: colors.tint, borderLeftWidth: 4 }
                   ]}
                   onPress={() => markNotificationAsRead(notification.id)}
                 >
@@ -216,7 +217,7 @@ export default function ParentDashboardScreen() {
                       {notification.content}
                     </Text>
                     <Text style={[styles.notificationDate, { color: colors.icon }]}>
-                      {formatDate(notification.created_at)}
+                      {formatDate(notification.createdAt)}
                     </Text>
                   </View>
                 </TouchableOpacity>

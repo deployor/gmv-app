@@ -1,3 +1,4 @@
+import { useSignUp } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
@@ -18,21 +19,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 type User = {
   id: string;
-  email: string;
-  full_name: string | null;
+  email: string | null;
+  fullName: string | null;
   username: string | null;
   role: 'student' | 'teacher' | 'admin' | 'parent';
-  created_at: string;
+  createdAt: Date;
+  clerkId: string;
 };
 
 export default function AdminUsersScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user } = useAuth();
+  const { signUp, isLoaded } = useSignUp();
   
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -47,13 +50,13 @@ export default function AdminUsersScreen() {
   const [newUser, setNewUser] = useState({
     email: '',
     password: '',
-    full_name: '',
+    fullName: '',
     role: 'student' as 'student' | 'teacher' | 'admin' | 'parent'
   });
   
   // Edit user form state
   const [editUser, setEditUser] = useState({
-    full_name: '',
+    fullName: '',
     role: 'student' as 'student' | 'teacher' | 'admin' | 'parent'
   });
   
@@ -66,7 +69,7 @@ export default function AdminUsersScreen() {
       const filtered = users.filter(user => {
         const matchesSearch = searchQuery.trim() === '' || 
           (user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-           user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
            user.username?.toLowerCase().includes(searchQuery.toLowerCase()));
         
         const matchesRole = !selectedRole || user.role === selectedRole;
@@ -84,17 +87,14 @@ export default function AdminUsersScreen() {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const data = await prisma.user.findMany({
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
       
-      if (error) throw error;
-      
-      if (data) {
-        setUsers(data as User[]);
-        setFilteredUsers(data as User[]);
-      }
+      setUsers(data);
+      setFilteredUsers(data);
     } catch (error) {
       console.error('Error fetching users:', error);
       Alert.alert('Error', 'Failed to load users');
@@ -104,65 +104,45 @@ export default function AdminUsersScreen() {
   };
   
   const handleAddUser = async () => {
-    if (!newUser.email || !newUser.password || !newUser.full_name) {
+    if (!newUser.email || !newUser.password || !newUser.fullName) {
       Alert.alert('Missing Fields', 'Please fill in all required fields');
+      return;
+    }
+    
+    if (!isLoaded) {
+      Alert.alert('Error', 'Authentication system is not loaded yet');
       return;
     }
     
     try {
       setLoading(true);
       
-      // 1. Create auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: newUser.email,
+      // 1. Create user with Clerk
+      await signUp.create({
+        emailAddress: newUser.email,
         password: newUser.password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: newUser.full_name,
+        unsafeMetadata: {
+          fullName: newUser.fullName,
           role: newUser.role
         }
       });
       
-      if (authError) throw authError;
+      // The actual user record will be created in AuthContext when they sign in
+      // Reset form and close modal
+      setNewUser({
+        email: '',
+        password: '',
+        fullName: '',
+        role: 'student'
+      });
       
-      if (authData.user) {
-        // 2. Create profile (should be handled by database trigger, but we'll verify)
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', authData.user.id)
-          .single();
-          
-        if (profileError && profileError.code !== 'PGRST116') {
-          // If not "no rows returned" error
-          throw profileError;
-        }
-        
-        if (!profileData) {
-          // Create profile manually if trigger didn't work
-          await supabase.from('profiles').insert({
-            id: authData.user.id,
-            email: newUser.email,
-            full_name: newUser.full_name,
-            role: newUser.role
-          });
-        }
-        
-        // Reset form and close modal
-        setNewUser({
-          email: '',
-          password: '',
-          full_name: '',
-          role: 'student'
-        });
-        
-        setIsAddUserModalVisible(false);
-        
-        // Refresh user list
-        fetchUsers();
-        
-        Alert.alert('Success', 'User created successfully');
-      }
+      setIsAddUserModalVisible(false);
+      
+      // Refresh user list
+      fetchUsers();
+      
+      Alert.alert('Success', 'User created successfully. They will need to verify their email to sign in.');
+      
     } catch (error: any) {
       console.error('Error creating user:', error);
       Alert.alert('Error', error.message || 'Failed to create user');
@@ -172,7 +152,7 @@ export default function AdminUsersScreen() {
   };
   
   const handleEditUser = async () => {
-    if (!selectedUser || !editUser.full_name) {
+    if (!selectedUser || !editUser.fullName) {
       Alert.alert('Missing Fields', 'Please fill in all required fields');
       return;
     }
@@ -180,17 +160,17 @@ export default function AdminUsersScreen() {
     try {
       setLoading(true);
       
-      // Update profile
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: editUser.full_name,
+      // Update user in database
+      await prisma.user.update({
+        where: {
+          id: selectedUser.id
+        },
+        data: {
+          fullName: editUser.fullName,
           role: editUser.role
-        })
-        .eq('id', selectedUser.id);
+        }
+      });
         
-      if (error) throw error;
-      
       // Reset form and close modal
       setIsEditUserModalVisible(false);
       setSelectedUser(null);
@@ -229,10 +209,12 @@ export default function AdminUsersScreen() {
             try {
               setLoading(true);
               
-              // Delete from auth (will cascade to profile due to foreign key)
-              const { error } = await supabase.auth.admin.deleteUser(userId);
-              
-              if (error) throw error;
+              // Delete user from database
+              await prisma.user.delete({
+                where: {
+                  id: userId
+                }
+              });
               
               // Refresh user list
               fetchUsers();
@@ -253,7 +235,7 @@ export default function AdminUsersScreen() {
   const openEditUserModal = (user: User) => {
     setSelectedUser(user);
     setEditUser({
-      full_name: user.full_name || '',
+      fullName: user.fullName || '',
       role: user.role
     });
     setIsEditUserModalVisible(true);
@@ -291,7 +273,7 @@ export default function AdminUsersScreen() {
       <View style={styles.userInfo}>
         <View style={styles.nameContainer}>
           <Text style={[styles.userName, { color: colors.text }]}>
-            {item.full_name || 'No Name'}
+            {item.fullName || 'No Name'}
           </Text>
           <Text style={[styles.userEmail, { color: colors.icon }]}>
             {item.email}
@@ -385,8 +367,8 @@ export default function AdminUsersScreen() {
               style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
               placeholder="Full Name"
               placeholderTextColor={colors.icon}
-              value={newUser.full_name}
-              onChangeText={(text) => setNewUser(prev => ({ ...prev, full_name: text }))}
+              value={newUser.fullName}
+              onChangeText={(text) => setNewUser(prev => ({ ...prev, fullName: text }))}
             />
             
             <Text style={[styles.inputLabel, { color: colors.text }]}>Email *</Text>
@@ -476,8 +458,8 @@ export default function AdminUsersScreen() {
               style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
               placeholder="Full Name"
               placeholderTextColor={colors.icon}
-              value={editUser.full_name}
-              onChangeText={(text) => setEditUser(prev => ({ ...prev, full_name: text }))}
+              value={editUser.fullName}
+              onChangeText={(text) => setEditUser(prev => ({ ...prev, fullName: text }))}
             />
             
             <Text style={[styles.inputLabel, { color: colors.text }]}>Role *</Text>

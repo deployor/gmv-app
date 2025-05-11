@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { SafeAreaView, ScrollView, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import AdminAnnouncements from '../../components/ui/AdminAnnouncements';
 import NewsPage from '../../components/ui/NewsPage';
 import TeacherAssignments from '../../components/ui/TeacherAssignments';
@@ -10,14 +10,75 @@ import TeacherClasses from '../../components/ui/TeacherClasses';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
+import { prisma } from '../../lib/prisma';
 
-type TabOptions = 'announcements' | 'classes' | 'assignments' | 'news';
+type TabOptions = 'announcements' | 'classes' | 'assignments' | 'news' | 'stats' | 'activity';
+
+interface StatItemProps {
+  title: string;
+  value: number | string;
+  icon: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}
+
+const StatItem = ({ title, value, icon, style }: StatItemProps) => {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  
+  return (
+    <View style={[styles.statItem, { backgroundColor: colors.background }, style]}>
+      <View style={styles.statContent}>
+        <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+        <Text style={[styles.statTitle, { color: colors.icon }]}>{title}</Text>
+      </View>
+      <View style={[styles.statIcon, { backgroundColor: colors.tint + '15' }]}>
+        {icon}
+      </View>
+    </View>
+  );
+};
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<TabOptions>('announcements');
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { user } = useAuth();
+  
+  const [loading, setLoading] = useState(true);
+  const [totalStudents, setTotalStudents] = useState(0);
+  const [totalTeachers, setTotalTeachers] = useState(0);
+  const [totalClasses, setTotalClasses] = useState(0);
+  const [totalAssignments, setTotalAssignments] = useState(0);
+  
+  useEffect(() => {
+    async function fetchStats() {
+      setLoading(true);
+      try {
+        const studentCount = await prisma.user.count({
+          where: { role: 'student' }
+        });
+        
+        const teacherCount = await prisma.user.count({
+          where: { role: 'teacher' }
+        });
+        
+        const classCount = await prisma.class.count();
+        
+        const assignmentCount = await prisma.assignment.count();
+        
+        setTotalStudents(studentCount);
+        setTotalTeachers(teacherCount);
+        setTotalClasses(classCount);
+        setTotalAssignments(assignmentCount);
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    fetchStats();
+  }, []);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -172,5 +233,31 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+  },
+  statContent: {
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  statTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  statIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 

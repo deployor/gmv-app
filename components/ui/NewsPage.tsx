@@ -15,18 +15,20 @@ import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 import RichTextEditor from './RichTextEditor';
 
 interface NewsItem {
   id: string;
   title: string;
   content: string;
-  image_url: string | null;
-  author_id: string;
-  created_at: string;
-  author_name?: string;
-  author_role?: string;
+  imageUrl: string | null;
+  authorId: string;
+  createdAt: Date;
+  author?: {
+    fullName: string | null;
+    role: string;
+  };
 }
 
 export default function NewsPage() {
@@ -55,26 +57,21 @@ export default function NewsPage() {
     try {
       setFetchingNews(true);
       
-      const { data, error } = await supabase
-        .from('news')
-        .select(`
-          *,
-          profiles:author_id (fullName, role)
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      // Process data to include author name
-      const processedNews = (data || []).map(newsItem => {
-        return {
-          ...newsItem,
-          author_name: newsItem.profiles?.fullName || 'Unknown',
-          author_role: newsItem.profiles?.role || 'user'
-        };
+      const newsData = await prisma.news.findMany({
+        include: {
+          author: {
+            select: {
+              fullName: true,
+              role: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
       });
       
-      setNews(processedNews);
+      setNews(newsData);
     } catch (error) {
       console.error('Error fetching news:', error);
       toast.showToast('Failed to load news', 'error');
@@ -92,18 +89,18 @@ export default function NewsPage() {
     try {
       setLoading(true);
       
-      const { error } = await supabase
-        .from('news')
-        .insert([
-          {
-            title: title.trim(),
-            content: content.trim(),
-            image_url: imageUrl.trim() || null,
-            author_id: user?.id
-          }
-        ]);
-
-      if (error) throw error;
+      if (!user?.id) {
+        throw new Error('User not authenticated');
+      }
+      
+      await prisma.news.create({
+        data: {
+          title: title.trim(),
+          content: content.trim(),
+          imageUrl: imageUrl.trim() || null,
+          authorId: user.id
+        }
+      });
 
       // Reset form and close modal
       setTitle('');
@@ -123,12 +120,11 @@ export default function NewsPage() {
 
   const handleDeleteNews = async (newsId: string) => {
     try {
-      const { error } = await supabase
-        .from('news')
-        .delete()
-        .eq('id', newsId);
-
-      if (error) throw error;
+      await prisma.news.delete({
+        where: {
+          id: newsId
+        }
+      });
       
       toast.showToast('News article deleted', 'success');
       fetchNews();
@@ -143,8 +139,8 @@ export default function NewsPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateValue: Date) => {
+    return new Date(dateValue).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
@@ -238,24 +234,36 @@ export default function NewsPage() {
             <ScrollView style={styles.modalScrollContent}>
               <View style={styles.articleMeta}>
                 <Text style={[styles.articleAuthor, { color: colors.text }]}>
-                  By {selectedNews.author_name}
+                  By {selectedNews.author?.fullName || 'Unknown'}
                 </Text>
                 <Text style={[styles.articleDate, { color: colors.icon }]}>
-                  {formatDate(selectedNews.created_at)}
+                  {formatDate(selectedNews.createdAt)}
                 </Text>
               </View>
               
-              {selectedNews.image_url && (
+              {selectedNews.imageUrl && (
                 <Image 
-                  source={{ uri: selectedNews.image_url }} 
-                  style={styles.articleDetailImage}
+                  source={{ uri: selectedNews.imageUrl }} 
+                  style={styles.articleImage} 
                   resizeMode="cover"
                 />
               )}
               
-              <Text style={[styles.articleContent, { color: colors.text }]}>
-                {selectedNews.content}
-              </Text>
+              <View style={styles.articleContent}>
+                <Text style={[styles.contentText, { color: colors.text }]}>
+                  {selectedNews.content}
+                </Text>
+              </View>
+              
+              {isAdmin && (
+                <TouchableOpacity 
+                  style={[styles.deleteButton, { backgroundColor: '#FF3B30' + '20' }]}
+                  onPress={() => handleDeleteNews(selectedNews.id)}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                  <Text style={styles.deleteButtonText}>Delete Article</Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -296,59 +304,38 @@ export default function NewsPage() {
         </View>
       ) : (
         <ScrollView style={styles.newsScroll}>
-          {news.map((item) => (
-            <View 
-              key={item.id} 
-              style={[styles.newsCard, { backgroundColor: colors.background, borderColor: colors.icon }]}
+          {news.map((newsItem) => (
+            <TouchableOpacity 
+              key={newsItem.id} 
+              style={[styles.newsCard, { backgroundColor: colors === Colors.dark ? '#1E1E1E' : '#F5F5F5' }]}
+              onPress={() => setSelectedNews(newsItem)}
             >
-              {item.image_url && (
+              {newsItem.imageUrl && (
                 <Image 
-                  source={{ uri: item.image_url }} 
-                  style={styles.newsImage}
+                  source={{ uri: newsItem.imageUrl }} 
+                  style={styles.cardImage} 
                   resizeMode="cover"
                 />
               )}
-              
-              <View style={styles.newsContent}>
-                <TouchableOpacity onPress={() => setSelectedNews(item)}>
-                  <Text style={[styles.newsTitle, { color: colors.text }]}>{item.title}</Text>
-                </TouchableOpacity>
-                
-                <View style={styles.newsMetaRow}>
-                  <Text style={[styles.newsAuthor, { color: colors.icon }]}>
-                    By {item.author_name}
+              <View style={styles.cardContent}>
+                <Text style={[styles.cardTitle, { color: colors.text }]}>{newsItem.title}</Text>
+                <View style={styles.cardMeta}>
+                  <Text style={[styles.cardAuthor, { color: colors.icon }]}>
+                    By {newsItem.author?.fullName || 'Unknown'}
                   </Text>
-                  <Text style={[styles.newsDate, { color: colors.icon }]}>
-                    {formatDate(item.created_at)}
+                  <Text style={[styles.cardDate, { color: colors.icon }]}>
+                    {formatDate(newsItem.createdAt)}
                   </Text>
                 </View>
-                
                 <Text 
-                  style={[styles.newsPreview, { color: colors.text }]}
-                  numberOfLines={3}
+                  style={[styles.cardPreview, { color: colors.text }]}
+                  numberOfLines={2}
                 >
-                  {item.content.replace(/<[^>]*>/g, '')}
+                  {newsItem.content}
                 </Text>
-                
-                <View style={styles.newsActions}>
-                  <TouchableOpacity 
-                    style={[styles.readMoreButton, { borderColor: colors.tint }]}
-                    onPress={() => setSelectedNews(item)}
-                  >
-                    <Text style={[styles.readMoreText, { color: colors.tint }]}>Read More</Text>
-                  </TouchableOpacity>
-                  
-                  {isAdmin && (
-                    <TouchableOpacity 
-                      style={styles.deleteButton}
-                      onPress={() => handleDeleteNews(item.id)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                    </TouchableOpacity>
-                  )}
-                </View>
+                <Text style={[styles.readMore, { color: colors.tint }]}>Read more</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       )}
@@ -418,51 +405,37 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
   },
-  newsImage: {
+  cardImage: {
     width: '100%',
     height: 180,
   },
-  newsContent: {
+  cardContent: {
     padding: 16,
   },
-  newsTitle: {
+  cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 8,
   },
-  newsMetaRow: {
+  cardMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 10,
   },
-  newsAuthor: {
+  cardAuthor: {
     fontSize: 14,
   },
-  newsDate: {
+  cardDate: {
     fontSize: 14,
   },
-  newsPreview: {
+  cardPreview: {
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 16,
   },
-  newsActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  readMoreButton: {
-    borderWidth: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  readMoreText: {
+  readMore: {
     fontSize: 14,
     fontWeight: '500',
-  },
-  deleteButton: {
-    padding: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -535,14 +508,31 @@ const styles = StyleSheet.create({
   articleDate: {
     fontSize: 14,
   },
-  articleDetailImage: {
+  articleImage: {
     width: '100%',
     height: 200,
     borderRadius: 8,
     marginBottom: 16,
   },
   articleContent: {
+    marginBottom: 24,
+  },
+  contentText: {
     fontSize: 16,
     lineHeight: 24,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  deleteButtonText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
   },
 }); 

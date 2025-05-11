@@ -1,151 +1,87 @@
-import { useOAuth, useSignIn } from '@clerk/clerk-expo';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
     StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'student' | 'teacher' | 'parent' | 'admin'>('student');
+  const [superUserPassword, setSuperUserPassword] = useState('');
+  const [superUserMode, setSuperUserMode] = useState(false);
   
-  const { signIn, isLoaded, setActive } = useSignIn();
-  const { startOAuthFlow: startMicrosoftOAuthFlow } = useOAuth({ strategy: "oauth_microsoft" });
-  const [loading, setLoading] = useState(false);
-  const [microsoftLoading, setMicrosoftLoading] = useState(false);
+  const { user, isSignedIn, loading, signInWithMicrosoft, signInSuperUser } = useAuth();
+  const [localLoading, setLocalLoading] = useState(false);
   
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const toast = useToast();
 
-  const handleSignIn = async () => {
-    if (!email || !password) {
-      Alert.alert('Missing fields', 'Please fill in all fields');
-      return;
-    }
-
-    if (!isLoaded || !signIn) {
-      Alert.alert('Error', 'Auth system is not loaded yet');
-      return;
-    }
-
-    try {
-      setLoading(true);
+  // Check if user is already signed in and redirect to appropriate screen
+  useEffect(() => {
+    if (isSignedIn && user) {
+      console.log('LoginScreen: User already signed in, redirecting to appropriate dashboard');
       
-      // Log the sign-in attempt
-      console.log(`Attempting to sign in with email: ${email} and role: ${role}`);
-      
-      // Start the sign in process with Clerk
-      const signInResponse = await signIn.create({
-        identifier: email,
-        password,
-      });
-      
-      console.log('Sign in response status:', signInResponse.status);
-      
-      // This indicates the user was found and authenticated
-      if (signInResponse.status === 'complete') {
-        if (signInResponse.createdSessionId) {
-          console.log('Created session with ID:', signInResponse.createdSessionId);
-          
-          // Set this session as active which changes the authentication state
-          await setActive({ session: signInResponse.createdSessionId });
-          toast.showToast('Signed in successfully!', 'success');
-          // Navigation will be handled by the layout component when auth state changes
-        } else {
-          console.error('No session ID in complete response');
-          toast.showToast('Authentication error - missing session', 'error');
-        }
-      } else if (signInResponse.status === 'needs_first_factor' || 
-                 signInResponse.status === 'needs_second_factor') {
-        // Handle 2FA or other factor requirements
-        toast.showToast('Additional verification needed', 'info');
-        // You would handle the factor verification flow here
-      } else if (signInResponse.status === 'needs_identifier') {
-        toast.showToast('Please enter your email address', 'info');
-      } else if (signInResponse.status === 'needs_new_password') {
-        toast.showToast('Please reset your password', 'info');
-        // Handle password reset flow
-      } else {
-        // The sign in process requires more steps or failed
-        console.log('Sign in returned unexpected status:', signInResponse.status);
-        Alert.alert('Authentication Error', `Unexpected status: ${signInResponse.status}`);
+      let redirectPath;
+      switch (user.role) {
+        case 'admin':
+          redirectPath = '/(admin)/dashboard' as const;
+          break;
+        case 'parent':
+          redirectPath = '/(parent)/dashboard' as const;
+          break;
+        case 'teacher':
+          redirectPath = '/(teacher)/dashboard' as const;
+          break;
+        default:
+          redirectPath = '/(tabs)' as const;
+          break;
       }
-    } catch (error: any) {
-      console.error('Sign in error:', error);
       
-      // Handle specific error types
-      if (error.errors && error.errors.length > 0) {
-        const errorMessage = error.errors[0].message;
-        const errorCode = error.errors[0].code;
-        
-        console.log(`Auth error code: ${errorCode}, message: ${errorMessage}`);
-        
-        if (errorCode === 'form_identifier_not_found') {
-          Alert.alert('Account Not Found', 'No account exists with this email address.');
-        } else if (errorCode === 'form_password_incorrect') {
-          Alert.alert('Incorrect Password', 'The password you entered is incorrect.');
-        } else {
-          Alert.alert('Authentication Error', errorMessage);
-        }
-      } else {
-        Alert.alert('Authentication Error', 'Failed to sign in. Please try again.');
-      }
-    } finally {
-      setLoading(false);
+      router.replace(redirectPath);
     }
-  };
+  }, [isSignedIn, user]);
 
   const handleMicrosoftSignIn = async () => {
-    if (!isLoaded) {
-      Alert.alert('Error', 'Auth system is not loaded yet');
+    if (loading) {
       return;
     }
 
     try {
-      setMicrosoftLoading(true);
-      
-      // Start the OAuth flow
-      const result = await startMicrosoftOAuthFlow();
-      console.log('Microsoft OAuth result:', JSON.stringify(result, null, 2));
-      
-      // Check if we have a valid result
-      if (result && result.createdSessionId) {
-        console.log('Successfully created session with ID:', result.createdSessionId);
-        
-        // Set the session as active
-        if (result.setActive) {
-          await result.setActive({ session: result.createdSessionId });
-          toast.showToast('Signed in with Microsoft successfully!', 'success');
-        } else {
-          // Fallback to our regular setActive if the OAuth one isn't available
-          await setActive({ session: result.createdSessionId });
-          toast.showToast('Signed in with Microsoft successfully!', 'success');
-        }
-      } else {
-        console.log('No session created. Full result:', result);
-        toast.showToast('Microsoft sign in failed. Please try again.', 'error');
-      }
-    } catch (error: any) {
+      setLocalLoading(true);
+      await signInWithMicrosoft();
+    } catch (error) {
       console.error('Microsoft auth error:', error);
       toast.showToast('Failed to sign in with Microsoft', 'error');
     } finally {
-      setMicrosoftLoading(false);
+      setLocalLoading(false);
     }
   };
 
-  const navigateToRegister = () => {
-    router.push({
-      pathname: '/register',
-      params: { role }
-    });
+  const handleSuperUserSignIn = async () => {
+    if (!superUserPassword) {
+      Alert.alert('Missing Password', 'Please enter the super user password');
+      return;
+    }
+
+    try {
+      setLocalLoading(true);
+      const success = await signInSuperUser(superUserPassword);
+      
+      if (!success) {
+        Alert.alert('Authentication Failed', 'The super user password is incorrect');
+      }
+    } catch (error) {
+      console.error('Super user auth error:', error);
+      toast.showToast('Failed to sign in as super user', 'error');
+    } finally {
+      setLocalLoading(false);
+    }
   };
 
   // Microsoft logo color: #0078D4
@@ -164,162 +100,73 @@ export default function LoginScreen() {
       </View>
       
       <View style={styles.formContainer}>
-        {(loading || microsoftLoading || !isLoaded) && (
+        {(localLoading || loading) && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color={colors.tint} />
           </View>
         )}
         
-        <View style={styles.roleSelector}>
-          <TouchableOpacity 
-            style={[
-              styles.roleButton, 
-              role === 'student' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
-            ]}
-            onPress={() => setRole('student')}
-          >
-            <Ionicons 
-              name="school-outline" 
-              size={18} 
-              color={role === 'student' ? colors.tint : colors.icon} 
-              style={styles.roleIcon} 
+        {superUserMode ? (
+          <>
+            <Text style={[styles.modeTitle, { color: colors.text }]}>Super User Login</Text>
+            
+            <TextInput
+              style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
+              placeholder="Super User Password"
+              placeholderTextColor={colors.icon}
+              value={superUserPassword}
+              onChangeText={setSuperUserPassword}
+              secureTextEntry
+              editable={!localLoading && !loading}
             />
-            <Text style={[
-              styles.roleText, 
-              { color: role === 'student' ? colors.tint : colors.icon }
-            ]}>
-              Student
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.roleButton, 
-              role === 'teacher' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
-            ]}
-            onPress={() => setRole('teacher')}
-          >
-            <Ionicons 
-              name="person-outline" 
-              size={18} 
-              color={role === 'teacher' ? colors.tint : colors.icon} 
-              style={styles.roleIcon} 
-            />
-            <Text style={[
-              styles.roleText, 
-              { color: role === 'teacher' ? colors.tint : colors.icon }
-            ]}>
-              Teacher
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.roleButton, 
-              role === 'parent' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
-            ]}
-            onPress={() => setRole('parent')}
-          >
-            <Ionicons 
-              name="people-outline" 
-              size={18} 
-              color={role === 'parent' ? colors.tint : colors.icon} 
-              style={styles.roleIcon} 
-            />
-            <Text style={[
-              styles.roleText, 
-              { color: role === 'parent' ? colors.tint : colors.icon }
-            ]}>
-              Parent
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.roleButton, 
-              role === 'admin' && [styles.roleButtonActive, { borderColor: colors.tint, backgroundColor: colors.tint + '10' }]
-            ]}
-            onPress={() => setRole('admin')}
-          >
-            <Ionicons 
-              name="shield-outline" 
-              size={18} 
-              color={role === 'admin' ? colors.tint : colors.icon} 
-              style={styles.roleIcon} 
-            />
-            <Text style={[
-              styles.roleText, 
-              { color: role === 'admin' ? colors.tint : colors.icon }
-            ]}>
-              Admin
-            </Text>
-          </TouchableOpacity>
-        </View>
-        
-        <TextInput
-          style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
-          placeholder="Email"
-          placeholderTextColor={colors.icon}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          editable={!loading && isLoaded}
-        />
-        
-        <TextInput
-          style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
-          placeholder="Password"
-          placeholderTextColor={colors.icon}
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          editable={!loading && isLoaded}
-        />
-        
-        <TouchableOpacity 
-          style={styles.forgotPasswordLink} 
-          onPress={() => router.push('/(auth)/forgot-password')}
-          disabled={loading || !isLoaded}
-        >
-          <Text style={[styles.forgotPasswordText, { color: colors.tint }]}>
-            Forgot Password?
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.button, { backgroundColor: colors.tint }]} 
-          onPress={handleSignIn}
-          disabled={loading || microsoftLoading || !isLoaded}
-        >
-          <Text style={styles.buttonText}>Sign In</Text>
-        </TouchableOpacity>
-        
-        <View style={styles.orContainer}>
-          <View style={[styles.divider, { backgroundColor: colors.icon }]} />
-          <Text style={[styles.orText, { color: colors.icon }]}>OR</Text>
-          <View style={[styles.divider, { backgroundColor: colors.icon }]} />
-        </View>
-        
-        <TouchableOpacity 
-          style={[styles.socialButton, { backgroundColor: MICROSOFT_BLUE }]} 
-          onPress={handleMicrosoftSignIn}
-          disabled={loading || microsoftLoading || !isLoaded}
-        >
-          <Ionicons name="logo-windows" size={20} color="white" style={styles.socialIcon} />
-          <Text style={styles.socialButtonText}>Sign in with Microsoft</Text>
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.footer}>
-        <Text style={[styles.footerText, { color: colors.icon }]}>
-          Don&apos;t have an account?{' '}
-        </Text>
-        <TouchableOpacity onPress={navigateToRegister} disabled={loading || !isLoaded}>
-          <Text style={[styles.link, { color: colors.tint }]}>
-            Sign Up
-          </Text>
-        </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.button, { backgroundColor: colors.tint }]} 
+              onPress={handleSuperUserSignIn}
+              disabled={localLoading || loading}
+            >
+              <Text style={styles.buttonText}>Sign In as Super User</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.switchModeButton} 
+              onPress={() => setSuperUserMode(false)}
+            >
+              <Text style={[styles.switchModeText, { color: colors.tint }]}>
+                Return to Regular Login
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.modeTitle, { color: colors.text }]}>Sign in with your account</Text>
+            
+            <TouchableOpacity 
+              style={[styles.socialButton, { backgroundColor: MICROSOFT_BLUE }]} 
+              onPress={handleMicrosoftSignIn}
+              disabled={localLoading || loading}
+            >
+              <Ionicons name="logo-windows" size={20} color="white" style={styles.socialIcon} />
+              <Text style={styles.socialButtonText}>Sign in with Microsoft</Text>
+            </TouchableOpacity>
+            
+            <View style={styles.orContainer}>
+              <View style={[styles.divider, { backgroundColor: colors.icon }]} />
+              <Text style={[styles.orText, { color: colors.icon }]}>OR</Text>
+              <View style={[styles.divider, { backgroundColor: colors.icon }]} />
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.superUserButton} 
+              onPress={() => setSuperUserMode(true)}
+            >
+              <Ionicons name="shield-outline" size={20} color={colors.tint} style={styles.socialIcon} />
+              <Text style={[styles.superUserButtonText, { color: colors.tint }]}>
+                Super User Login
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -360,31 +207,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.05)',
     borderRadius: 8,
   },
-  roleSelector: {
-    flexDirection: 'row',
-    marginBottom: 20,
-    justifyContent: 'space-between',
-  },
-  roleButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 8,
-    marginHorizontal: 4,
-  },
-  roleButtonActive: {
-    borderWidth: 1,
-  },
-  roleIcon: {
-    marginRight: 6,
-  },
-  roleText: {
-    fontSize: 13,
-    fontWeight: '500',
+  modeTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 24,
   },
   input: {
     height: 50,
@@ -393,14 +220,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 16,
     fontSize: 16,
-  },
-  forgotPasswordLink: {
-    alignSelf: 'flex-end',
-    marginBottom: 16,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    fontWeight: '500',
   },
   button: {
     height: 50,
@@ -411,17 +230,6 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  footerText: {
-    fontSize: 16,
-  },
-  link: {
     fontSize: 16,
     fontWeight: '600',
   },
@@ -451,6 +259,27 @@ const styles = StyleSheet.create({
   socialButtonText: {
     color: 'white',
     fontSize: 16,
+    fontWeight: '500',
+  },
+  superUserButton: {
+    height: 50,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  superUserButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  switchModeButton: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  switchModeText: {
+    fontSize: 14,
     fontWeight: '500',
   },
 }); 

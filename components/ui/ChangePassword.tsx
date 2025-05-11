@@ -1,166 +1,126 @@
-import { Ionicons } from '@expo/vector-icons';
+import { useClerk, useSignIn } from '@clerk/clerk-expo';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
 
-export default function ChangePassword({ onClose }: { onClose?: () => void }) {
+interface ChangePasswordProps {
+  onClose?: () => void;
+}
+
+export default function ChangePassword({ onClose }: ChangePasswordProps) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const toast = useToast();
+  const { user } = useAuth();
+  const { signIn, isLoaded } = useSignIn();
+  const clerk = useClerk();
 
   const handleChangePassword = async () => {
+    // Reset states
+    setError(null);
+    setSuccess(false);
+    
     // Validate inputs
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all password fields');
+      setError('All fields are required');
       return;
     }
-
+    
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      setError('New passwords do not match');
       return;
     }
-
-    if (newPassword.length < 6) {
-      Alert.alert('Error', 'New password must be at least 6 characters long');
+    
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long');
       return;
     }
-
+    
     try {
       setLoading(true);
       
-      // First sign in with existing credentials to verify current password
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: (await supabase.auth.getUser()).data.user?.email || '',
-        password: currentPassword,
-      });
-      
-      if (signInError) {
-        console.error('Error verifying current password:', signInError);
-        Alert.alert('Error', 'Current password is incorrect');
-        return;
+      // We need to use Clerk's SDK to change the password
+      // First, verify the current password is correct
+      if (!isLoaded || !user?.email) {
+        throw new Error('User authentication not available');
       }
       
-      // Update password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword
+      // Use Clerk's updatePassword method
+      await clerk.user?.updatePassword({
+        currentPassword,
+        newPassword,
       });
-      
-      if (updateError) {
-        console.error('Error updating password:', updateError);
-        throw updateError;
-      }
       
       // Success
-      toast.showToast('Password updated successfully', 'success');
+      setSuccess(true);
+      toast.showToast('Password changed successfully', 'success');
       
-      // Reset form
+      // Clear form
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       
-      // Close modal if provided
+      // Close modal if handler was provided
       if (onClose) {
-        onClose();
+        setTimeout(() => {
+          onClose();
+        }, 1500); // Give user time to see success message
       }
-    } catch (error) {
-      console.error('Error changing password:', error);
-      toast.showToast('Failed to update password', 'error');
+    } catch (err) {
+      console.error('Error changing password:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to change password';
+      setError(errorMessage);
+      toast.showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={styles.container}>
       <Text style={[styles.title, { color: colors.text }]}>Change Password</Text>
       
-      <View style={styles.inputContainer}>
-        <Text style={[styles.label, { color: colors.text }]}>Current Password</Text>
-        <View style={[styles.passwordContainer, { borderColor: colors.icon }]}>
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            value={currentPassword}
-            onChangeText={setCurrentPassword}
-            secureTextEntry={!showCurrentPassword}
-            placeholder="Enter current password"
-            placeholderTextColor={colors.icon}
-            editable={!loading}
-          />
-          <TouchableOpacity 
-            style={styles.eyeIcon}
-            onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-          >
-            <Ionicons 
-              name={showCurrentPassword ? 'eye-off-outline' : 'eye-outline'} 
-              size={20} 
-              color={colors.icon} 
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <TextInput
+        style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
+        placeholder="Current Password"
+        placeholderTextColor={colors.icon}
+        secureTextEntry
+        value={currentPassword}
+        onChangeText={setCurrentPassword}
+      />
       
-      <View style={styles.inputContainer}>
-        <Text style={[styles.label, { color: colors.text }]}>New Password</Text>
-        <View style={[styles.passwordContainer, { borderColor: colors.icon }]}>
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            value={newPassword}
-            onChangeText={setNewPassword}
-            secureTextEntry={!showNewPassword}
-            placeholder="Enter new password"
-            placeholderTextColor={colors.icon}
-            editable={!loading}
-          />
-          <TouchableOpacity 
-            style={styles.eyeIcon}
-            onPress={() => setShowNewPassword(!showNewPassword)}
-          >
-            <Ionicons 
-              name={showNewPassword ? 'eye-off-outline' : 'eye-outline'} 
-              size={20} 
-              color={colors.icon} 
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <TextInput
+        style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
+        placeholder="New Password"
+        placeholderTextColor={colors.icon}
+        secureTextEntry
+        value={newPassword}
+        onChangeText={setNewPassword}
+      />
       
-      <View style={styles.inputContainer}>
-        <Text style={[styles.label, { color: colors.text }]}>Confirm New Password</Text>
-        <View style={[styles.passwordContainer, { borderColor: colors.icon }]}>
-          <TextInput
-            style={[styles.input, { color: colors.text }]}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showConfirmPassword}
-            placeholder="Confirm new password"
-            placeholderTextColor={colors.icon}
-            editable={!loading}
-          />
-          <TouchableOpacity 
-            style={styles.eyeIcon}
-            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-          >
-            <Ionicons 
-              name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} 
-              size={20} 
-              color={colors.icon} 
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <TextInput
+        style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
+        placeholder="Confirm New Password"
+        placeholderTextColor={colors.icon}
+        secureTextEntry
+        value={confirmPassword}
+        onChangeText={setConfirmPassword}
+      />
       
-      <TouchableOpacity 
+      {error && <Text style={styles.errorText}>{error}</Text>}
+      {success && <Text style={styles.successText}>Password changed successfully</Text>}
+      
+      <TouchableOpacity
         style={[styles.button, { backgroundColor: colors.tint }]}
         onPress={handleChangePassword}
         disabled={loading}
@@ -168,7 +128,7 @@ export default function ChangePassword({ onClose }: { onClose?: () => void }) {
         {loading ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text style={styles.buttonText}>Update Password</Text>
+          <Text style={styles.buttonText}>Change Password</Text>
         )}
       </TouchableOpacity>
       
@@ -178,7 +138,7 @@ export default function ChangePassword({ onClose }: { onClose?: () => void }) {
           onPress={onClose}
           disabled={loading}
         >
-          <Text style={[styles.cancelText, { color: colors.icon }]}>Cancel</Text>
+          <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -188,58 +148,48 @@ export default function ChangePassword({ onClose }: { onClose?: () => void }) {
 const styles = StyleSheet.create({
   container: {
     padding: 20,
-    borderRadius: 12,
-    width: '100%',
-    maxWidth: 400,
   },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 20,
-    textAlign: 'center',
-  },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    height: 50,
   },
   input: {
-    flex: 1,
-    height: '100%',
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 16,
     paddingHorizontal: 16,
     fontSize: 16,
-  },
-  eyeIcon: {
-    padding: 10,
   },
   button: {
     height: 50,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 10,
   },
   buttonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
+  errorText: {
+    color: '#FF3B30',
+    marginBottom: 16,
+  },
+  successText: {
+    color: '#34C759',
+    marginBottom: 16,
+  },
   cancelButton: {
-    marginTop: 16,
+    height: 40,
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 8,
+    marginTop: 10,
   },
   cancelText: {
     fontSize: 16,
+    color: '#8E8E93',
   },
 }); 

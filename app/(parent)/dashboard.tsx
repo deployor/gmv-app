@@ -7,14 +7,14 @@ import NewsPage from '../../components/ui/NewsPage';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 type TabOptions = 'children' | 'assignments' | 'news';
 
 interface StudentInfo {
   id: string;
-  full_name: string;
-  email: string;
+  fullName: string | null;
+  email: string | null;
 }
 
 interface ClassInfo {
@@ -26,7 +26,7 @@ interface AssignmentInfo {
   id: string;
   title: string;
   description: string | null;
-  due_date: string;
+  dueDate: string;
   class_name: string;
   is_submitted: boolean;
   grade: number | null;
@@ -72,32 +72,47 @@ export default function ParentDashboard() {
       setLoading(true);
       
       // Get children linked to this parent
-      const { data: relationships, error: relError } = await supabase
-        .from('parent_student_relationships')
-        .select('student_id')
-        .eq('parent_id', user.id);
+      const relationships = await prisma.parentStudentRelationship.findMany({
+        where: {
+          parentId: user.id
+        },
+        select: {
+          studentId: true
+        }
+      });
         
-      if (relError) throw relError;
-      
       if (!relationships || relationships.length === 0) {
         setLoading(false);
         return;
       }
       
       // Get student details
-      const studentIds = relationships.map(rel => rel.student_id);
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', studentIds);
+      const studentIds = relationships.map(rel => rel.studentId);
+      const studentsData = await prisma.user.findMany({
+        where: {
+          id: {
+            in: studentIds
+          }
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true
+        }
+      });
         
-      if (studentsError) throw studentsError;
+      // Transform to expected StudentInfo format
+      const formattedStudents: StudentInfo[] = studentsData.map(student => ({
+        id: student.id,
+        fullName: student.fullName,
+        email: student.email
+      }));
       
-      setChildren(studentsData || []);
+      setChildren(formattedStudents);
       
       // Automatically select first child if exists
-      if (studentsData && studentsData.length > 0 && !selectedChildId) {
-        setSelectedChildId(studentsData[0].id);
+      if (formattedStudents.length > 0 && !selectedChildId) {
+        setSelectedChildId(formattedStudents[0].id);
       }
       
     } catch (error) {
@@ -114,13 +129,15 @@ export default function ParentDashboard() {
       setLoading(true);
       
       // Get classes for the selected child
-      const { data: enrollments, error: enrollError } = await supabase
-        .from('enrollments')
-        .select('class_id')
-        .eq('student_id', selectedChildId);
+      const enrollments = await prisma.enrollment.findMany({
+        where: {
+          studentId: selectedChildId
+        },
+        select: {
+          classId: true
+        }
+      });
         
-      if (enrollError) throw enrollError;
-      
       if (!enrollments || enrollments.length === 0) {
         setClasses([]);
         setAssignments([]);
@@ -128,48 +145,67 @@ export default function ParentDashboard() {
         return;
       }
       
-      const classIds = enrollments.map(e => e.class_id);
+      const classIds = enrollments.map(e => e.classId);
       
       // Get class info
-      const { data: classesData, error: classesError } = await supabase
-        .from('classes')
-        .select('id, name')
-        .in('id', classIds);
+      const classesData = await prisma.class.findMany({
+        where: {
+          id: {
+            in: classIds
+          }
+        },
+        select: {
+          id: true,
+          name: true
+        }
+      });
         
-      if (classesError) throw classesError;
       setClasses(classesData || []);
       
       // Get assignments for these classes
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('assignments')
-        .select(`
-          id, title, description, due_date, points,
-          classes:class_id (name)
-        `)
-        .in('class_id', classIds)
-        .order('due_date', { ascending: false });
+      const assignmentsData = await prisma.assignment.findMany({
+        where: {
+          classId: {
+            in: classIds
+          }
+        },
+        include: {
+          class: {
+            select: {
+              name: true
+            }
+          }
+        },
+        orderBy: {
+          dueDate: 'desc'
+        }
+      });
         
-      if (assignmentsError) throw assignmentsError;
-      
-      // Check if student has submitted these assignments
-      const enrichedAssignments = await Promise.all((assignmentsData || []).map(async (assignment: AssignmentData) => {
-        const { data: submissionData, error: submissionError } = await supabase
-          .from('submissions')
-          .select('is_graded, grade')
-          .eq('assignment_id', assignment.id)
-          .eq('student_id', selectedChildId)
-          .maybeSingle();
+      // Check if student has submitted these assignments and format to match AssignmentInfo
+      const enrichedAssignments: AssignmentInfo[] = await Promise.all((assignmentsData || []).map(async (assignment) => {
+        const submissionData = await prisma.submission.findUnique({
+          where: {
+            studentId_assignmentId: {
+              assignmentId: assignment.id,
+              studentId: selectedChildId
+            }
+          },
+          select: {
+            isGraded: true,
+            grade: true
+          }
+        });
           
-        if (submissionError) throw submissionError;
-        
         return {
-          ...assignment,
-          class_name: Array.isArray(assignment.classes) 
-            ? (assignment.classes[0]?.name || 'Unknown') 
-            : (assignment.classes?.name || 'Unknown'),
+          id: assignment.id,
+          title: assignment.title,
+          description: assignment.description,
+          dueDate: assignment.dueDate.toISOString(),
+          points: assignment.points,
+          class_name: assignment.class?.name || 'Unknown',
           is_submitted: Boolean(submissionData),
           grade: submissionData?.grade || null,
-          is_graded: submissionData?.is_graded || false
+          is_graded: submissionData?.isGraded || false
         };
       }));
       
@@ -232,12 +268,12 @@ export default function ParentDashboard() {
           >
             <View style={[styles.avatarCircle, { backgroundColor: colors.tint + '20' }]}>
               <Text style={[styles.avatarText, { color: colors.tint }]}>
-                {child.full_name.charAt(0).toUpperCase()}
+                {child.fullName?.charAt(0).toUpperCase() || ''}
               </Text>
             </View>
             
             <View style={styles.childInfo}>
-              <Text style={[styles.childName, { color: colors.text }]}>{child.full_name}</Text>
+              <Text style={[styles.childName, { color: colors.text }]}>{child.fullName}</Text>
               <Text style={[styles.childEmail, { color: colors.icon }]}>{child.email}</Text>
             </View>
             
@@ -326,7 +362,7 @@ export default function ParentDashboard() {
                     { color: selectedChildId === child.id ? colors.tint : colors.icon }
                   ]}
                 >
-                  {child.full_name}
+                  {child.fullName}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -334,7 +370,7 @@ export default function ParentDashboard() {
         </View>
         
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          {currentChild?.full_name}'s Assignments
+          {currentChild?.fullName}'s Assignments
         </Text>
         
         {assignments.length === 0 ? (
@@ -369,7 +405,7 @@ export default function ParentDashboard() {
                         </View>
                       )
                     ) : (
-                      isAssignmentOverdue(assignment.due_date) ? (
+                      isAssignmentOverdue(assignment.dueDate) ? (
                         <View style={[styles.statusBadge, { backgroundColor: '#FF3B30' + '20' }]}>
                           <Text style={[styles.statusText, { color: '#FF3B30' }]}>Overdue</Text>
                         </View>
@@ -389,12 +425,12 @@ export default function ParentDashboard() {
                 <Text style={[
                   styles.assignmentDue, 
                   { 
-                    color: isAssignmentOverdue(assignment.due_date) && !assignment.is_submitted 
+                    color: isAssignmentOverdue(assignment.dueDate) && !assignment.is_submitted 
                       ? '#FF3B30' 
                       : colors.icon 
                   }
                 ]}>
-                  Due: {formatDate(assignment.due_date)}
+                  Due: {formatDate(assignment.dueDate)}
                 </Text>
                 
                 {assignment.description && (

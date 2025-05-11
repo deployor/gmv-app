@@ -2,40 +2,42 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 
 type Class = {
   id: string;
   name: string;
   description: string | null;
-  teacher_id: string;
-  created_at: string;
+  teacherId: string | null;
+  createdAt: Date;
   teacher: {
     id: string;
-    full_name: string | null;
+    fullName: string | null;
   } | null;
   student_count: number;
+  imageUrl?: string | null;
+  enrollments?: any[];
 };
 
 type Teacher = {
   id: string;
-  full_name: string | null;
-  email: string;
+  fullName: string | null;
+  email: string | null;
 };
 
 export default function AdminClassesScreen() {
@@ -74,7 +76,7 @@ export default function AdminClassesScreen() {
     if (searchQuery) {
       const filtered = classes.filter(cls => {
         const name = cls.name.toLowerCase();
-        const teacherName = cls.teacher?.full_name?.toLowerCase() || '';
+        const teacherName = cls.teacher?.fullName?.toLowerCase() || '';
         const query = searchQuery.toLowerCase();
         
         return name.includes(query) || teacherName.includes(query);
@@ -90,27 +92,34 @@ export default function AdminClassesScreen() {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('classes')
-        .select(`
-          *,
-          teacher:teacher_id(id, full_name),
-          student_count:enrollments(count)
-        `)
-        .order('created_at', { ascending: false });
+      // Fetch classes with teacher information and count enrollments
+      const classData = await prisma.class.findMany({
+        include: {
+          teacher: {
+            select: {
+              id: true,
+              fullName: true
+            }
+          },
+          enrollments: {
+            select: {
+              id: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
       
-      if (error) throw error;
+      // Process the data to include student count
+      const processedData = classData.map(cls => ({
+        ...cls,
+        student_count: cls.enrollments.length || 0
+      }));
       
-      if (data) {
-        // Process the data to get the student count
-        const processedData = data.map(cls => ({
-          ...cls,
-          student_count: cls.student_count?.[0]?.count || 0
-        }));
-        
-        setClasses(processedData);
-        setFilteredClasses(processedData);
-      }
+      setClasses(processedData);
+      setFilteredClasses(processedData);
     } catch (error) {
       console.error('Error fetching classes:', error);
       Alert.alert('Error', 'Failed to load classes');
@@ -121,16 +130,18 @@ export default function AdminClassesScreen() {
   
   const fetchTeachers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .eq('role', 'teacher');
-        
-      if (error) throw error;
+      const teacherData = await prisma.user.findMany({
+        where: {
+          role: 'teacher'
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true
+        }
+      });
       
-      if (data) {
-        setTeachers(data as Teacher[]);
-      }
+      setTeachers(teacherData as Teacher[]);
     } catch (error) {
       console.error('Error fetching teachers:', error);
     }
@@ -146,18 +157,14 @@ export default function AdminClassesScreen() {
       setLoading(true);
       
       // Create new class
-      const { data, error } = await supabase
-        .from('classes')
-        .insert({
+      const createdClass = await prisma.class.create({
+        data: {
           name: newClass.name,
           description: newClass.description || null,
-          teacher_id: newClass.teacher_id
-        })
-        .select()
-        .single();
+          teacherId: newClass.teacher_id
+        }
+      });
         
-      if (error) throw error;
-      
       // Reset form and close modal
       setNewClass({
         name: '',
@@ -189,17 +196,17 @@ export default function AdminClassesScreen() {
       setLoading(true);
       
       // Update class
-      const { error } = await supabase
-        .from('classes')
-        .update({
+      await prisma.class.update({
+        where: {
+          id: selectedClass.id
+        },
+        data: {
           name: editClass.name,
           description: editClass.description || null,
-          teacher_id: editClass.teacher_id
-        })
-        .eq('id', selectedClass.id);
+          teacherId: editClass.teacher_id
+        }
+      });
         
-      if (error) throw error;
-      
       // Reset form and close modal
       setIsEditClassModalVisible(false);
       setSelectedClass(null);
@@ -233,13 +240,12 @@ export default function AdminClassesScreen() {
               setLoading(true);
               
               // Delete class (cascade will handle related records)
-              const { error } = await supabase
-                .from('classes')
-                .delete()
-                .eq('id', classId);
+              await prisma.class.delete({
+                where: {
+                  id: classId
+                }
+              });
                 
-              if (error) throw error;
-              
               // Refresh class list
               fetchClasses();
               
@@ -261,7 +267,7 @@ export default function AdminClassesScreen() {
     setEditClass({
       name: cls.name,
       description: cls.description || '',
-      teacher_id: cls.teacher_id
+      teacher_id: cls.teacherId || ''
     });
     setIsEditClassModalVisible(true);
   };
@@ -299,7 +305,7 @@ export default function AdminClassesScreen() {
         <View style={styles.teacherContainer}>
           <Ionicons name="person" size={14} color={colors.icon} style={styles.footerIcon} />
           <Text style={[styles.teacherName, { color: colors.icon }]}>
-            {item.teacher?.full_name || 'No Teacher Assigned'}
+            {item.teacher?.fullName || 'No Teacher Assigned'}
           </Text>
         </View>
         
@@ -372,7 +378,7 @@ export default function AdminClassesScreen() {
                       newClass.teacher_id === teacher.id && { color: colors.tint }
                     ]}
                   >
-                    {teacher.full_name || teacher.email}
+                    {teacher.fullName || teacher.email || 'No Teacher Assigned'}
                   </Text>
                   {newClass.teacher_id === teacher.id && (
                     <Ionicons name="checkmark" size={18} color={colors.tint} />
@@ -457,7 +463,7 @@ export default function AdminClassesScreen() {
                       editClass.teacher_id === teacher.id && { color: colors.tint }
                     ]}
                   >
-                    {teacher.full_name || teacher.email}
+                    {teacher.fullName || teacher.email || 'No Teacher Assigned'}
                   </Text>
                   {editClass.teacher_id === teacher.id && (
                     <Ionicons name="checkmark" size={18} color={colors.tint} />

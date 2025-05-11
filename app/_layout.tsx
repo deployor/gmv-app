@@ -3,8 +3,8 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Href, Slot, SplashScreen, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Button, StyleSheet, Text, View } from 'react-native';
 import 'react-native-reanimated';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 
@@ -12,46 +12,71 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
-  const { user, loading, isSignedIn } = useAuth();
+  const { user, loading, isSignedIn, refreshUserProfile } = useAuth();
   const colorScheme = useColorScheme();
+  const [profileRetryCount, setProfileRetryCount] = useState(0);
+  const [showProfileError, setShowProfileError] = useState(false);
+  
+  // Handle missing profile retry
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    
+    // If signed in but no profile, try to refresh after a delay
+    if (isSignedIn && !user && !loading && profileRetryCount < 3) {
+      console.log(`Attempting to refresh user profile (attempt ${profileRetryCount + 1}/3)...`);
+      
+      timeoutId = setTimeout(() => {
+        refreshUserProfile();
+        setProfileRetryCount(prev => prev + 1);
+      }, 2000); // Wait 2 seconds between retries
+    }
+    
+    // Show error UI after 3 failed attempts
+    if (profileRetryCount >= 3 && isSignedIn && !user && !loading) {
+      setShowProfileError(true);
+    }
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isSignedIn, user, loading, profileRetryCount, refreshUserProfile]);
 
   useEffect(() => {
     if (!loading) {
       SplashScreen.hideAsync();
-      if (!isSignedIn) {
-        router.replace('/(auth)/login' as Href);
-      } else if (user) {
+      
+      console.log('Auth state:', { isSignedIn, userExists: !!user, loading, profileRetryCount });
+      
+      if (isSignedIn && user) {
         // User is authenticated and profile is loaded, proceed with role-based navigation
         console.log('RootNavigator: User authenticated and profile loaded. Role:', user.role);
+        setProfileRetryCount(0); // Reset retry count
+        setShowProfileError(false); // Hide error UI
+        
+        let targetRoute: Href;
         switch (user.role) {
           case 'admin':
-            router.replace('/(admin)/dashboard' as Href);
+            targetRoute = '/(admin)/dashboard' as Href;
             break;
           case 'parent':
-            router.replace('/(parent)/dashboard' as Href);
+            targetRoute = '/(parent)/dashboard' as Href;
             break;
           case 'teacher':
-            router.replace('/(teacher)/dashboard' as Href);
+            targetRoute = '/(teacher)/dashboard' as Href;
             break;
           case 'student':
           default:
-            router.replace('/(tabs)' as Href);
+            targetRoute = '/(tabs)' as Href;
             break;
         }
-      } else if (isSignedIn && !user && !loading) {
-        // This case means Clerk authentication was successful, but the application-specific user profile
-        // from your database is null after the loading phase.
-        // This could indicate an issue with fetching or creating the profile in AuthContext.
-        // The application might be in an inconsistent state.
-        console.warn(
-          'RootNavigator Critical State: User is signed in with Clerk, but no local user profile could be loaded or created. ',
-          'The app might not function correctly. Consider redirecting to an error page or forcing a sign-out if a profile is mandatory.'
-        );
-        // Depending on app requirements, you might want to:
-        // router.replace('/(auth)/profile-error' as Href); // Example: Redirect to a profile error page
-        // or attempt to sign the user out via useAuth().signOut();
-        // For now, it will remain on the current screen or the Slot's default rendering.
+        
+        // Just navigate to the target route directly
+        router.replace(targetRoute);
+      } else if (!isSignedIn) {
+        // User not signed in, go to login
+        router.replace('/(auth)/login' as Href);
       }
+      // The isSignedIn && !user case is handled by the retry mechanism
     }
   }, [isSignedIn, user, loading]);
 
@@ -59,7 +84,29 @@ function RootNavigator() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colorScheme === 'dark' ? DarkTheme.colors.text : DefaultTheme.colors.text} />
-        <Text style={{ color: colorScheme === 'dark' ? DarkTheme.colors.text : DefaultTheme.colors.text }}>Authenticating...</Text>
+        <Text style={{ color: colorScheme === 'dark' ? DarkTheme.colors.text : DefaultTheme.colors.text, marginTop: 12 }}>Authenticating...</Text>
+      </View>
+    );
+  }
+  
+  // Show error UI if we failed to create/load the profile after multiple attempts
+  if (showProfileError && isSignedIn && !user) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={{ color: colorScheme === 'dark' ? DarkTheme.colors.text : DefaultTheme.colors.text, fontSize: 18, marginBottom: 16 }}>
+          Couldn't load your profile
+        </Text>
+        <Text style={{ color: colorScheme === 'dark' ? DarkTheme.colors.text : DefaultTheme.colors.text, marginBottom: 24, textAlign: 'center' }}>
+          You're signed in, but we couldn't find or create your profile. This might happen if your account was just created.
+        </Text>
+        <Button 
+          title="Try Again" 
+          onPress={() => {
+            setProfileRetryCount(0);
+            setShowProfileError(false);
+            refreshUserProfile();
+          }} 
+        />
       </View>
     );
   }
@@ -103,5 +150,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
 });

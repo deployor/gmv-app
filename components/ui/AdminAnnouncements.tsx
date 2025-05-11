@@ -3,16 +3,28 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../../constants/Colors';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useColorScheme } from '../../hooks/useColorScheme';
-import { supabase } from '../../lib/supabase';
+import { prisma } from '../../lib/prisma';
 import RichTextEditor from './RichTextEditor';
+
+type Announcement = {
+  id: string;
+  title: string;
+  content: string;
+  authorId: string;
+  classId: string | null;
+  targetAudience: any; // Using any for simplicity, but could be more specific
+  expiresAt: Date | null;
+  createdAt: Date;
+};
 
 export default function AdminAnnouncements() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [fetchingAnnouncements, setFetchingAnnouncements] = useState(false);
   
   // Target audience
@@ -29,6 +41,7 @@ export default function AdminAnnouncements() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const toast = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchAnnouncements();
@@ -37,12 +50,12 @@ export default function AdminAnnouncements() {
   const fetchAnnouncements = async () => {
     try {
       setFetchingAnnouncements(true);
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const data = await prisma.announcement.findMany({
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
 
-      if (error) throw error;
       setAnnouncements(data || []);
     } catch (error) {
       console.error('Error fetching announcements:', error);
@@ -58,6 +71,11 @@ export default function AdminAnnouncements() {
       return;
     }
 
+    if (!user?.id) {
+      toast.showToast('User not authenticated', 'error');
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -69,20 +87,16 @@ export default function AdminAnnouncements() {
         admins: targetAdmins
       };
       
-      // Create announcement object
-      const announcementData = {
-        title: title.trim(),
-        content: content.trim(),
-        author_id: (await supabase.auth.getUser()).data.user?.id,
-        target_audience: targetAudience,
-        expires_at: hasExpiration ? expirationDate.toISOString() : null
-      };
-
-      const { error } = await supabase
-        .from('announcements')
-        .insert([announcementData]);
-
-      if (error) throw error;
+      // Create announcement with Prisma
+      await prisma.announcement.create({
+        data: {
+          title: title.trim(),
+          content: content.trim(),
+          authorId: user.id,
+          targetAudience: targetAudience,
+          expiresAt: hasExpiration ? expirationDate : null
+        }
+      });
 
       // Reset form and refresh announcements
       setTitle('');
@@ -106,12 +120,11 @@ export default function AdminAnnouncements() {
 
   const handleDeleteAnnouncement = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('announcements')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await prisma.announcement.delete({
+        where: {
+          id: id
+        }
+      });
       
       toast.showToast('Announcement deleted', 'success');
       fetchAnnouncements();
@@ -128,7 +141,7 @@ export default function AdminAnnouncements() {
     }
   };
 
-  const formatDate = (date: string) => {
+  const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -288,32 +301,32 @@ export default function AdminAnnouncements() {
                 </View>
                 
                 <Text style={[styles.dateText, { color: colors.icon }]}>
-                  Created: {formatDate(announcement.created_at)}
+                  Created: {formatDate(announcement.createdAt)}
                 </Text>
                 
-                {announcement.expires_at && (
+                {announcement.expiresAt && (
                   <Text style={[styles.dateText, { color: colors.icon }]}>
-                    Expires: {formatDate(announcement.expires_at)}
+                    Expires: {formatDate(announcement.expiresAt)}
                   </Text>
                 )}
                 
                 <View style={styles.targetBadges}>
-                  {announcement.target_audience?.teachers && (
+                  {announcement.targetAudience?.teachers && (
                     <View style={[styles.targetBadge, { backgroundColor: colors.tint + '30' }]}>
                       <Text style={[styles.targetBadgeText, { color: colors.tint }]}>Teachers</Text>
                     </View>
                   )}
-                  {announcement.target_audience?.students && (
+                  {announcement.targetAudience?.students && (
                     <View style={[styles.targetBadge, { backgroundColor: colors.tint + '30' }]}>
                       <Text style={[styles.targetBadgeText, { color: colors.tint }]}>Students</Text>
                     </View>
                   )}
-                  {announcement.target_audience?.parents && (
+                  {announcement.targetAudience?.parents && (
                     <View style={[styles.targetBadge, { backgroundColor: colors.tint + '30' }]}>
                       <Text style={[styles.targetBadgeText, { color: colors.tint }]}>Parents</Text>
                     </View>
                   )}
-                  {announcement.target_audience?.admins && (
+                  {announcement.targetAudience?.admins && (
                     <View style={[styles.targetBadge, { backgroundColor: colors.tint + '30' }]}>
                       <Text style={[styles.targetBadgeText, { color: colors.tint }]}>Admins</Text>
                     </View>

@@ -31,6 +31,7 @@ export default function RegisterScreen() {
   const initialRole = (params.role as 'student' | 'teacher' | 'parent' | 'admin') || 'student';
 
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -45,7 +46,7 @@ export default function RegisterScreen() {
   const toast = useToast();
 
   const handleSignUp = async () => {
-    if (!email || !password || !confirmPassword || !fullName) {
+    if (!email || !password || !confirmPassword || !fullName || !username) {
       Alert.alert('Missing fields', 'Please fill in all required fields');
       return;
     }
@@ -88,22 +89,21 @@ export default function RegisterScreen() {
     try {
       setLoading(true);
       
-      // Split the full name into first and last names
-      const nameParts = fullName.trim().split(/\s+/);
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
       // Create the user with Clerk
       const signUpResponse = await signUp.create({
         emailAddress: email,
+        username,
         password,
-        firstName,
-        lastName,
         unsafeMetadata: {
-          role,
-          fullName
+          role: role,
+          fullName: fullName,
+          firstName: fullName.trim().split(/\s+/)[0] || '',
+          lastName: fullName.trim().split(/\s+/).slice(1).join(' ') || ''
         }
       });
+      
+      // Add proper debugging
+      console.log('Sign-up response:', JSON.stringify(signUpResponse, null, 2));
       
       // Prepare verification
       await signUpResponse.prepareEmailAddressVerification({ strategy: "email_code" });
@@ -114,17 +114,41 @@ export default function RegisterScreen() {
         params: { email }
       });
     } catch (error: any) {
-      // Handle registration errors with the auth-error screen
+      // Handle registration errors with detailed logging
       console.error('Sign up error:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
       
-      if (error.errors && error.errors[0]) {
-        const errorMessage = error.errors[0].message;
-        if (errorMessage.includes('already exists')) {
+      // Try to extract the specific error information
+      if (error.errors && error.errors.length > 0) {
+        const clerkError = error.errors[0];
+        const errorCode = clerkError.code;
+        const errorMessage = clerkError.message;
+        
+        console.error(`Clerk error code: ${errorCode}, message: ${errorMessage}`);
+        
+        // Handle specific error types
+        if (errorCode === 'form_identifier_exists' || errorMessage.includes('already exists')) {
           router.push({
             pathname: '/(auth)/auth-error',
             params: { 
               type: 'email_in_use',
               message: 'This email address is already registered.'
+            }
+          });
+        } else if (errorCode === 'form_param_format_invalid') {
+          router.push({
+            pathname: '/(auth)/auth-error',
+            params: { 
+              type: 'invalid_format',
+              message: errorMessage || 'One of the fields has an invalid format.'
+            }
+          });
+        } else if (errorCode === 'form_param_nil') {
+          router.push({
+            pathname: '/(auth)/auth-error',
+            params: { 
+              type: 'missing_field',
+              message: errorMessage || 'A required field is missing.'
             }
           });
         } else {
@@ -282,6 +306,17 @@ export default function RegisterScreen() {
             value={fullName}
             onChangeText={setFullName}
             autoCapitalize="words"
+            editable={!loading}
+          />
+          
+          <Text style={[styles.inputLabel, { color: colors.text }]}>Username *</Text>
+          <TextInput
+            style={[styles.input, { borderColor: colors.icon, color: colors.text }]}
+            placeholder="Username"
+            placeholderTextColor={colors.icon}
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
             editable={!loading}
           />
           
