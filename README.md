@@ -1,7 +1,5 @@
-# GMV School APP
+# EDUZE!
 
-# PAIN.
+## Open source School APP for students and not your school admins!
 
-# Dont expect anythign to run theres so many linter errors. 
-
-# Um yea-
+## WIP
