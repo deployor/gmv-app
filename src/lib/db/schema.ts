@@ -81,4 +81,69 @@ export const userRoles = pgTable(
   (ur) => ({
     compoundKey: primaryKey({ columns: [ur.userId, ur.roleId] }),
   })
+);
+
+// Feed system tables
+export const posts = pgTable("posts", {
+  id: text("id")
+    .notNull()
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  title: text("title").notNull(),
+  content: text("content"),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const comments = pgTable("comments", {
+  id: text("id")
+    .notNull()
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  content: text("content").notNull(),
+  postId: text("post_id")
+    .notNull()
+    .references(() => posts.id, { onDelete: "cascade" }),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  parentId: text("parent_id"), // for nested comments - will add reference later
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const likes = pgTable(
+  "likes",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    postId: text("post_id").references(() => posts.id, { onDelete: "cascade" }),
+    commentId: text("comment_id").references(() => comments.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  }
+);
+
+export const reactions = pgTable(
+  "reactions",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    postId: text("post_id").references(() => posts.id, { onDelete: "cascade" }),
+    commentId: text("comment_id").references(() => comments.id, { onDelete: "cascade" }),
+    emoji: text("emoji").notNull(), // 😀, 😍, 😢, 😡, 👍, 👎, etc.
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  }
 ); 

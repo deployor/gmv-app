@@ -27,7 +27,6 @@ export function MobileNav() {
           onClick={() => setIsOpen(!isOpen)}
           className="hover:bg-accent"
         >
-          {/* Hamburger Icon */}
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="20"
