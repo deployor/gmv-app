@@ -1,8 +1,11 @@
-import { getServerAuthSession } from "@/lib/auth";
-import Link from "next/link";
+"use client";
 
-export default async function Home() {
-  const session = await getServerAuthSession();
+import { useSession, signIn } from "next-auth/react";
+import Link from "next/link";
+import { LogIn } from "lucide-react";
+
+export default function Home() {
+  const { data: session } = useSession();
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5">
@@ -51,18 +54,13 @@ export default async function Home() {
                   <p className="text-muted-foreground mb-6">
                     Sign in with your Microsoft account to access your dashboard.
                   </p>
-                  <Link
-                    href="/api/auth/signin"
+                  <button
+                    onClick={() => signIn("azure-ad")}
                     className="inline-flex items-center justify-center w-full px-8 py-4 rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-semibold shadow-lg hover:shadow-xl hover:shadow-primary/25 transition-all duration-300 hover:scale-105 group"
                   >
-                    <svg className="w-5 h-5 mr-3" viewBox="0 0 21 21" fill="currentColor">
-                      <path d="M10.5 0h10.5v10.5h-10.5z" fill="#f35325"/>
-                      <path d="M0 0h10.5v10.5h-10.5z" fill="#81bc06"/>
-                      <path d="M0 10.5h10.5v10.5h-10.5z" fill="#05a6f0"/>
-                      <path d="M10.5 10.5h10.5v10.5h-10.5z" fill="#ffba08"/>
-                    </svg>
+                    <LogIn className="w-5 h-5 mr-3" />
                     Sign in with Microsoft
-                  </Link>
+                  </button>
                 </div>
               </div>
             )}

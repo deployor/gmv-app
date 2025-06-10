@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { MobileNav } from "@/components/navigation/MobileNav";
 import { Button } from "@/components/ui/button";
+import { LogIn } from "lucide-react";
 
 export function Navbar() {
   const { data: session } = useSession();
@@ -42,9 +43,10 @@ export function Navbar() {
             ) : (
               <Button
                 size="sm"
-                onClick={() => (window.location.href = "/api/auth/signin")}
-                className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 text-primary-foreground shadow-lg hover:shadow-xl hover:shadow-primary/25 transition-all duration-200"
+                onClick={() => signIn("azure-ad")}
+                className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 text-primary-foreground shadow-lg hover:shadow-xl hover:shadow-primary/25 transition-all duration-200 flex items-center gap-2"
               >
+                <LogIn className="w-4 h-4" />
                 Sign In
               </Button>
             )}
