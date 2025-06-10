@@ -23,7 +23,17 @@ export function Navbar() {
           </Link>
         </div>
         <MobileNav />
-        <div className="flex flex-1 items-center justify-end space-x-4">
+        <div className="flex flex-1 items-center justify-between space-x-4">
+          <nav className="flex items-center space-x-6">
+            {session && (
+              <Link 
+                href="/feed" 
+                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Feed
+              </Link>
+            )}
+          </nav>
           <nav className="flex items-center space-x-2">
             {session ? (
               <div className="flex items-center space-x-3">
