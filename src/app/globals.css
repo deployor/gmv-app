@@ -1,5 +1,5 @@
+@import "tailwindcss/preflight";
 @import "tailwindcss";
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -93,9 +93,9 @@
     background-image: radial-gradient(ellipse 80% 80% at 50% -20%, oklch(0.1 0.05 264 / 0.3), transparent);
   }
   
-  /* Custom scrollbar */
+  /* Enhanced scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
+    @apply w-1.5;
   }
   
   ::-webkit-scrollbar-track {
@@ -104,14 +104,69 @@
   
   ::-webkit-scrollbar-thumb {
     @apply bg-muted rounded-full;
+    background: rgba(255, 255, 255, 0.2);
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/50;
+    background: rgba(255, 255, 255, 0.3);
   }
 }
 
 /* Smooth animations */
 * {
   @apply transition-colors duration-200;
+}
+
+/* Custom Grid Background */
+.bg-grid-white\/\[0\.02\] {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.02) 1px, transparent 0);
+}
+
+/* Glassmorphism effects */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Beautiful text selection */
+::selection {
+  background: rgba(168, 85, 247, 0.3);
+  color: white;
+}
+
+/* Focus styles */
+.focus-visible\:ring-2:focus-visible {
+  outline: 2px solid rgba(168, 85, 247, 0.5);
+  outline-offset: 2px;
+}
+
+/* Floating animation */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Pulse glow effect */
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
 }

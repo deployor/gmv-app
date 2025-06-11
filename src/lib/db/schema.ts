@@ -84,19 +84,23 @@ export const userRoles = pgTable(
 );
 
 // Feed system tables
-export const posts = pgTable("posts", {
-  id: text("id")
-    .notNull()
-    .primaryKey()
-    .$defaultFn(() => createId()),
-  title: text("title").notNull(),
-  content: text("content"),
-  authorId: text("author_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
-});
+export const posts = pgTable(
+  "posts",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    title: text("title").notNull(),
+    content: text("content"),
+    category: text("category").default("General"),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  }
+);
 
 export const comments = pgTable("comments", {
   id: text("id")
@@ -144,6 +148,21 @@ export const reactions = pgTable(
     postId: text("post_id").references(() => posts.id, { onDelete: "cascade" }),
     commentId: text("comment_id").references(() => comments.id, { onDelete: "cascade" }),
     emoji: text("emoji").notNull(), // 😀, 😍, 😢, 😡, 👍, 👎, etc.
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  }
+);
+
+export const categories = pgTable(
+  "categories",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    name: text("name").notNull().unique(),
+    description: text("description"),
+    icon: text("icon").default("Sparkles"),
+    color: text("color").default("from-blue-500 to-cyan-500"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   }
 ); 
