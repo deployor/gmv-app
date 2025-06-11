@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { title, content } = await request.json();
+    const { title, content, category } = await request.json();
     
     if (!title?.trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 });
@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
       .values({
         title: title.trim(),
         content: content?.trim() || "",
+        category: category || "General",
         authorId: session.user.id,
       })
       .returning();
