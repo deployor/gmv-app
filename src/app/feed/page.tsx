@@ -271,7 +271,7 @@ export default function FeedPage() {
             <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-purple-400 bg-clip-text text-transparent">
               Discover
             </h1>
-            <p className="text-gray-400 mt-1">What&apos;s happening in your world</p>
+            <p className="text-gray-400 mt-1">What&apos;s going on in ya school rn?</p>
           </div>
           
           <div className="flex items-center gap-4">
