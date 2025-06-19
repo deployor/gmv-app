@@ -15,6 +15,20 @@
       "when": 1749597176013,
       "tag": "0001_futuristic_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1749733192488,
+      "tag": "0002_fat_selene",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1749734669955,
+      "tag": "0003_amazing_thor_girl",
+      "breakpoints": true
     }
   ]
 }

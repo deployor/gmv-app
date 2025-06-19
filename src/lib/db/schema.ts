@@ -4,6 +4,7 @@ import {
   text,
   primaryKey,
   integer,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import type { AdapterAccount } from "@auth/core/adapters";
@@ -17,6 +18,8 @@ export const users = pgTable("user", {
   email: text("email").notNull(),
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
+  studentId: text("student_id").unique(),
+  grade: text("grade"),
 });
 
 export const accounts = pgTable(
@@ -165,4 +168,66 @@ export const categories = pgTable(
     color: text("color").default("from-blue-500 to-cyan-500"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   }
+);
+
+// Canteen system tables
+export const canteenMeals = pgTable("canteen_meals", {
+  id: text("id")
+    .notNull()
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(), // breakfast, lunch, dinner, snack
+  allergens: text("allergens"), // JSON array of allergens
+  nutritionInfo: text("nutrition_info"), // JSON object with nutrition data
+  price: integer("price"), // in cents
+  availableDate: timestamp("available_date", { mode: "date" }).notNull(),
+  dayOfWeek: text("day_of_week").notNull(), // monday, tuesday, etc.
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const canteenMealPhotos = pgTable("canteen_meal_photos", {
+  id: text("id")
+    .notNull()
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  mealId: text("meal_id")
+    .notNull()
+    .references(() => canteenMeals.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  photoUrl: text("photo_url").notNull(),
+  caption: text("caption"),
+  isOfficial: integer("is_official").default(0), // 0 = user photo, 1 = official photo
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const canteenRatings = pgTable(
+  "canteen_ratings",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    mealId: text("meal_id")
+      .notNull()
+      .references(() => canteenMeals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(), // 1-5 stars
+    review: text("review"),
+    taste: integer("taste"), // 1-5 rating for taste
+    presentation: integer("presentation"), // 1-5 rating for presentation
+    value: integer("value"), // 1-5 rating for value/price
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (rating) => ({
+    // Ensure one rating per user per meal
+    uniqueUserMeal: unique().on(rating.userId, rating.mealId),
+  })
 ); 

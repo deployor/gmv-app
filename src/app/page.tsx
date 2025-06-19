@@ -33,10 +33,10 @@ export default function Home() {
                   </p>
                   <div className="flex flex-col sm:flex-row gap-3 justify-center">
                     <Link
-                      href="/dashboard"
+                      href="/wallet"
                       className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-medium shadow-lg hover:shadow-xl hover:shadow-primary/25 transition-all duration-200 hover:scale-105"
                     >
-                      Dashboard
+                      Wallet
                     </Link>
                     <Link
                       href="/api/auth/signout"
