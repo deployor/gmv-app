@@ -15,7 +15,14 @@ declare module "next-auth" {
     user: {
       id: string;
       role: string;
+      studentId?: string | null;
+      grade?: string | null;
     } & DefaultSession["user"];
+  }
+
+  interface User {
+    studentId?: string | null;
+    grade?: string | null;
   }
 }
 
@@ -32,6 +39,8 @@ export const authOptions: NextAuthOptions = {
           ...session.user,
           id: user.id,
           role: userRole?.role ?? 'user',
+          studentId: ser.studentId ?? null,
+          grade: user.grade ?? null,
         },
       };
     },
@@ -46,7 +55,7 @@ export const authOptions: NextAuthOptions = {
     AzureADProvider({
       clientId: process.env.AZURE_AD_CLIENT_ID!,
       clientSecret: process.env.AZURE_AD_CLIENT_SECRET!,
-      tenantId: process.env.AZURE_AD_TENANT_ID!,
+      tenantId: "common",
     }),
   ],
 };

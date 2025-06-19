@@ -26,12 +26,20 @@ export function Navbar() {
         <div className="flex flex-1 items-center justify-between space-x-4">
           <nav className="flex items-center space-x-6">
             {session && (
+              <>
               <Link 
                 href="/feed" 
                 className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 Feed
               </Link>
+                <Link 
+                  href="/canteen" 
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Canteen
+                </Link>
+              </>
             )}
           </nav>
           <nav className="flex items-center space-x-2">

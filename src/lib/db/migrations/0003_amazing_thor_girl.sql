@@ -1,0 +1,2 @@
+ALTER TABLE "canteen_ratings" DROP CONSTRAINT "canteen_ratings_user_id_meal_id_pk";--> statement-breakpoint
+ALTER TABLE "canteen_ratings" ADD CONSTRAINT "canteen_ratings_user_id_meal_id_unique" UNIQUE("user_id","meal_id");

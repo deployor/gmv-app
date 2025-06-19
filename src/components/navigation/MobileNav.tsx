@@ -54,6 +54,30 @@ export function MobileNav() {
                 <p className="text-sm font-medium">{session.user?.name}</p>
                 <p className="text-xs text-muted-foreground">{session.user?.email}</p>
               </div>
+              <div className="space-y-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setIsOpen(false);
+                    window.location.href = "/feed";
+                  }}
+                  className="w-full justify-start"
+                >
+                  Feed
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setIsOpen(false);
+                    window.location.href = "/canteen";
+                  }}
+                  className="w-full justify-start"
+                >
+                  Canteen
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
