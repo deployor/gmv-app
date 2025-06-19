@@ -39,7 +39,7 @@ export const authOptions: NextAuthOptions = {
           ...session.user,
           id: user.id,
           role: userRole?.role ?? 'user',
-          studentId: ser.studentId ?? null,
+          studentId: user.studentId ?? null,
           grade: user.grade ?? null,
         },
       };
